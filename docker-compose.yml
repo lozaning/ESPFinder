@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  espfinder:
+    build: .
+    container_name: espfinder
+    volumes:
+      - ./data:/app/data
+      - ./config/.env:/app/.env
+    environment:
+      - DATABASE_URL=sqlite:///data/database/espfinder.db
+      - DATA_DIR=/app/data
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    depends_on:
+      - redis
+    
+  redis:
+    image: redis:7-alpine
+    container_name: espfinder-redis
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    
+  # Optional: PostgreSQL instead of SQLite
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: espfinder-postgres
+  #   environment:
+  #     POSTGRES_DB: espfinder
+  #     POSTGRES_USER: espfinder
+  #     POSTGRES_PASSWORD: password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  redis_data:
+  # postgres_data:

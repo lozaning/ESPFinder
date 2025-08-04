@@ -1,0 +1,13 @@
+requests==2.31.0
+beautifulsoup4==4.12.2
+sqlalchemy==2.0.23
+alembic==1.13.1
+pymupdf==1.23.14
+pillow==10.1.0
+python-dotenv==1.0.0
+celery==5.3.4
+redis==5.0.1
+apscheduler==3.10.4
+opencv-python-headless==4.8.1.78
+structlog==23.2.0
+psycopg2-binary==2.9.9
