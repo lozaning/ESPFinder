@@ -25,6 +25,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./config/.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DATABASE_URL=sqlite:///data/database/espfinder.db
       - DATA_DIR=/app/data
