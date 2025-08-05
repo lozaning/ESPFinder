@@ -301,6 +301,11 @@ def debug_scrape():
     except Exception as e:
         return Response(f"ERROR: {str(e)}", mimetype='text/plain')
 
+@app.route('/plain/status')  
+def plain_status():
+    """Plain text status on different endpoint to avoid HTTPS upgrade"""
+    return debug_status()
+
 @app.route('/debug/status')
 def debug_status():
     """Plain text system status for remote debugging"""
@@ -402,27 +407,4 @@ def api_stats():
 if __name__ == '__main__':
     Config.ensure_dirs()
     db.create_tables()
-    
-    # Generate self-signed certificate for HTTPS
-    import ssl
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    
-    # Create self-signed certificate if it doesn't exist
-    cert_file = '/app/server.crt'
-    key_file = '/app/server.key'
-    
-    if not os.path.exists(cert_file) or not os.path.exists(key_file):
-        # Generate self-signed certificate
-        import subprocess
-        subprocess.run([
-            'openssl', 'req', '-x509', '-newkey', 'rsa:4096', '-keyout', key_file,
-            '-out', cert_file, '-days', '365', '-nodes', '-subj', 
-            '/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=espfinder'
-        ], check=False)
-    
-    try:
-        context.load_cert_chain(cert_file, key_file)
-        app.run(host='0.0.0.0', port=5000, ssl_context=context, debug=False)
-    except:
-        # Fall back to HTTP if HTTPS fails
-        app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
