@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 REPO_URL="https://github.com/lozaning/ESPFinder.git"
 INSTALL_DIR="$HOME/ESPFinder"
 DOCKER_COMPOSE_VERSION="2.20.0"
@@ -26,22 +24,22 @@ install_docker() {
         if command -v apt-get >/dev/null 2>&1; then
             # Ubuntu/Debian
             echo "🔄 Updating package list..."
-            sudo apt-get update -qq
+            sudo apt-get update -qq || { echo "❌ Failed to update package list"; exit 1; }
             
             echo "🔄 Installing prerequisites..."
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg lsb-release
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg lsb-release || { echo "❌ Failed to install prerequisites"; exit 1; }
             
             echo "🔄 Adding Docker GPG key..."
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg || { echo "❌ Failed to add Docker GPG key"; exit 1; }
             
             echo "🔄 Adding Docker repository..."
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null || { echo "❌ Failed to add Docker repository"; exit 1; }
             
             echo "🔄 Updating package list with Docker repository..."
-            sudo apt-get update -qq
+            sudo apt-get update -qq || { echo "❌ Failed to update package list with Docker repository"; exit 1; }
             
             echo "🔄 Installing Docker..."
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin || { echo "❌ Failed to install Docker"; exit 1; }
             
         elif command -v yum >/dev/null 2>&1; then
             # RHEL/CentOS/Fedora
