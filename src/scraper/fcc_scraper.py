@@ -184,15 +184,16 @@ class FCCScraper:
         
         # Handle sample data
         if fcc_id.startswith('SAMPLE'):
+            # Use working sample PDFs hosted locally (created by create_sample_pdfs.py)
             sample_pdfs = [
                 {
                     'filename': f'{fcc_id}_Internal_Photos.pdf',
-                    'url': f'https://example.com/{fcc_id.lower()}_internal_photos.pdf',
+                    'url': f'http://espfinder-web:5000/sample_pdfs/{fcc_id}_Internal_Photos.pdf',
                     'fcc_id': fcc_id
                 },
                 {
                     'filename': f'{fcc_id}_Test_Report.pdf', 
-                    'url': f'https://example.com/{fcc_id.lower()}_test_report.pdf',
+                    'url': f'http://espfinder-web:5000/sample_pdfs/{fcc_id}_Test_Report.pdf',
                     'fcc_id': fcc_id
                 }
             ]

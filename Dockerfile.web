@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY config/ ./config/
+COPY create_sample_pdfs.py .
+COPY data/sample_pdfs/ ./data/sample_pdfs/
 
 RUN mkdir -p /app/data/database /app/data/images
 

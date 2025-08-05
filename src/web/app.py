@@ -383,6 +383,17 @@ def debug_status():
     except Exception as e:
         return Response(f"ERROR: {str(e)}", mimetype='text/plain')
 
+@app.route('/sample_pdfs/<filename>')
+def serve_sample_pdf(filename):
+    """Serve sample PDFs for testing"""
+    sample_pdf_dir = '/app/data/sample_pdfs'
+    pdf_path = os.path.join(sample_pdf_dir, filename)
+    
+    if os.path.exists(pdf_path) and filename.endswith('.pdf'):
+        return send_file(pdf_path, mimetype='application/pdf')
+    else:
+        return "PDF not found", 404
+
 @app.route('/api/stats')
 def api_stats():
     session = db.get_session()
@@ -406,5 +417,18 @@ def api_stats():
 
 if __name__ == '__main__':
     Config.ensure_dirs()
+    
+    # Create sample PDFs if they don't exist
+    sample_pdf_dir = '/app/data/sample_pdfs'
+    if not os.path.exists(sample_pdf_dir):
+        os.makedirs(sample_pdf_dir, exist_ok=True)
+        try:
+            # Create sample PDFs programmatically
+            from create_sample_pdfs import create_all_sample_pdfs
+            create_all_sample_pdfs()
+            print("✅ Sample PDFs created")
+        except Exception as e:
+            print(f"⚠️  Could not create sample PDFs: {e}")
+    
     db.create_tables()
     app.run(host='0.0.0.0', port=5000, debug=True)

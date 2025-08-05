@@ -60,13 +60,13 @@ class SeleniumFCCScraper:
             
             # Fill in the Final Action Date Range fields
             try:
-                # Find the start date field
-                start_date_field = self.driver.find_element(By.NAME, "final_start_date")
+                # Find the start date field (correct field name from FCC form)
+                start_date_field = self.driver.find_element(By.NAME, "grant_date_from")
                 start_date_field.clear()
                 start_date_field.send_keys(date_str)
                 
-                # Find the end date field  
-                end_date_field = self.driver.find_element(By.NAME, "final_end_date")
+                # Find the end date field (correct field name from FCC form)
+                end_date_field = self.driver.find_element(By.NAME, "grant_date_to")
                 end_date_field.clear()
                 end_date_field.send_keys(date_str)
                 
