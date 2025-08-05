@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Products - ESPFinder{% endblock %}
+
+{% block content %}
+<h1>FCC Products ({{ total }} total)</h1>
+
+{% if products %}
+    {% for product in products %}
+    <div class="card">
+        <h3><a href="/product/{{ product.fcc_id }}" style="color: #667eea; text-decoration: none;">{{ product.fcc_id }}</a></h3>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+            <div>
+                <strong>Applicant:</strong> {{ product.applicant or 'Unknown' }}<br>
+                {% if product.product_name %}
+                    <strong>Product:</strong> {{ product.product_name }}<br>
+                {% endif %}
+                {% if product.filing_date %}
+                    <strong>Filed:</strong> {{ product.filing_date.strftime('%Y-%m-%d') }}<br>
+                {% endif %}
+                <strong>Added:</strong> {{ product.created_at.strftime('%Y-%m-%d %H:%M') }}
+            </div>
+            <div>
+                <strong>Photos:</strong> {{ product.photos|length }}<br>
+                <strong>PDFs:</strong> {{ product.pdfs|length }}<br>
+                {% if product.equipment_class %}
+                    <strong>Equipment Class:</strong> {{ product.equipment_class }}
+                {% endif %}
+            </div>
+        </div>
+        
+        {% if product.photos %}
+            <div style="margin-top: 15px;">
+                <strong>Sample Photos:</strong>
+                <div style="display: flex; gap: 10px; margin-top: 10px; overflow-x: auto;">
+                    {% for photo in product.photos[:5] %}
+                        <img src="/thumbnail/{{ photo.id }}" 
+                             style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; cursor: pointer;"
+                             onclick="window.open('/image/{{ photo.id }}', '_blank')"
+                             title="{{ photo.filename }}">
+                    {% endfor %}
+                    {% if product.photos|length > 5 %}
+                        <div style="display: flex; align-items: center; padding: 0 10px; background: #f0f0f0; border-radius: 4px; font-size: 12px;">
+                            +{{ product.photos|length - 5 }} more
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <!-- Pagination -->
+    <div class="pagination">
+        {% if page > 1 %}
+            <a href="?page={{ page - 1 }}">&laquo; Previous</a>
+        {% endif %}
+        
+        {% set total_pages = (total + per_page - 1) // per_page %}
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+                <span class="current">{{ p }}</span>
+            {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+                <a href="?page={{ p }}">{{ p }}</a>
+            {% elif p == 4 or p == total_pages - 3 %}
+                <span>...</span>
+            {% endif %}
+        {% endfor %}
+        
+        {% if page < total_pages %}
+            <a href="?page={{ page + 1 }}">Next &raquo;</a>
+        {% endif %}
+    </div>
+{% else %}
+    <div class="card">
+        <p>No products found yet. The scraper is still collecting data...</p>
+    </div>
+{% endif %}
+{% endblock %}

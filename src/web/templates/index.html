@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}ESPFinder - FCC Internal Photos{% endblock %}
+
+{% block content %}
+<div class="stats">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_products }}</div>
+        <div>Products Tracked</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ total_photos }}</div>
+        <div>Photos Extracted</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent Products</h2>
+    {% if recent_products %}
+        {% for product in recent_products %}
+        <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+            <strong><a href="/product/{{ product.fcc_id }}" style="color: #667eea; text-decoration: none;">{{ product.fcc_id }}</a></strong>
+            <br>
+            <span style="color: #666;">{{ product.applicant or 'Unknown Applicant' }}</span>
+            {% if product.product_name %}
+                - {{ product.product_name }}
+            {% endif %}
+            <br>
+            <small style="color: #999;">{{ product.created_at.strftime('%Y-%m-%d %H:%M') }} • {{ product.photos|length }} photos</small>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>No products found yet. The scraper is still collecting data...</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>About ESPFinder</h2>
+    <p>ESPFinder automatically monitors new FCC equipment authorization filings and downloads internal photos from PDF submissions. These photos often show PCB layouts and internal components that are useful for hardware analysis.</p>
+    
+    <h3>How it works:</h3>
+    <ol>
+        <li>Monitors FCC database for new filings</li>
+        <li>Identifies PDFs containing internal photos</li>
+        <li>Downloads and extracts images from PDFs</li>
+        <li>Organizes photos by FCC ID for easy browsing</li>
+    </ol>
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.fcc_id }} - ESPFinder{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>{{ product.fcc_id }}</h1>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin: 20px 0;">
+        <div>
+            <h3>Product Information</h3>
+            <p><strong>Applicant:</strong> {{ product.applicant or 'Unknown' }}</p>
+            {% if product.product_name %}
+                <p><strong>Product Name:</strong> {{ product.product_name }}</p>
+            {% endif %}
+            {% if product.product_description %}
+                <p><strong>Description:</strong> {{ product.product_description }}</p>
+            {% endif %}
+            {% if product.equipment_class %}
+                <p><strong>Equipment Class:</strong> {{ product.equipment_class }}</p>
+            {% endif %}
+        </div>
+        
+        <div>
+            <h3>Filing Details</h3>
+            {% if product.filing_date %}
+                <p><strong>Filing Date:</strong> {{ product.filing_date.strftime('%Y-%m-%d') }}</p>
+            {% endif %}
+            {% if product.grant_date %}
+                <p><strong>Grant Date:</strong> {{ product.grant_date.strftime('%Y-%m-%d') }}</p>
+            {% endif %}
+            <p><strong>Added to Database:</strong> {{ product.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            <p><strong>Photos Extracted:</strong> {{ product.photos|length }}</p>
+            <p><strong>Source PDFs:</strong> {{ product.pdfs|length }}</p>
+        </div>
+    </div>
+</div>
+
+{% if product.pdfs %}
+<div class="card">
+    <h2>Source PDFs</h2>
+    {% for pdf in product.pdfs %}
+        <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+            <strong>{{ pdf.filename }}</strong>
+            {% if pdf.file_size %}
+                ({{ "%.1f"|format(pdf.file_size / 1024 / 1024) }} MB)
+            {% endif %}
+            <br>
+            <small style="color: #666;">
+                Downloaded: {{ pdf.downloaded }}
+                | Processed: {{ pdf.processed }}
+                | Photos extracted: {{ pdf.photos|length }}
+            </small>
+        </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if product.photos %}
+<div class="card">
+    <h2>Internal Photos ({{ product.photos|length }})</h2>
+    <div class="photo-grid">
+        {% for photo in product.photos %}
+            <div class="photo-card">
+                <img src="/thumbnail/{{ photo.id }}" 
+                     alt="{{ photo.filename }}"
+                     onclick="window.open('/image/{{ photo.id }}', '_blank')"
+                     style="cursor: pointer;">
+                <div class="photo-info">
+                    <strong>{{ photo.filename }}</strong><br>
+                    <small style="color: #666;">
+                        {{ photo.width }}x{{ photo.height }}
+                        {% if photo.file_size %}
+                            | {{ "%.1f"|format(photo.file_size / 1024) }} KB
+                        {% endif %}
+                        {% if photo.page_number %}
+                            | Page {{ photo.page_number }}
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+    <div class="card">
+        <h2>Photos</h2>
+        <p>No photos have been extracted yet.</p>
+    </div>
+{% endif %}
+
+<div style="margin: 20px 0;">
+    <a href="/products" style="background: #667eea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">
+        ← Back to Products
+    </a>
+</div>
+{% endblock %}

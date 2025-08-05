@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Search - ESPFinder{% endblock %}
+
+{% block content %}
+<h1>Search FCC Products</h1>
+
+<form method="GET" class="search-box">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search by FCC ID, applicant, or product name...">
+    <button type="submit">Search</button>
+</form>
+
+{% if query %}
+    <h2>Search Results for "{{ query }}"</h2>
+    
+    {% if products %}
+        <div class="card">
+            <h3>Products ({{ products|length }})</h3>
+            {% for product in products %}
+                <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+                    <strong><a href="/product/{{ product.fcc_id }}" style="color: #667eea; text-decoration: none;">{{ product.fcc_id }}</a></strong>
+                    <br>
+                    <span style="color: #666;">{{ product.applicant or 'Unknown Applicant' }}</span>
+                    {% if product.product_name %}
+                        - {{ product.product_name }}
+                    {% endif %}
+                    <br>
+                    <small style="color: #999;">{{ product.photos|length }} photos</small>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+    
+    {% if photos %}
+        <div class="card">
+            <h3>Photos ({{ photos|length }})</h3>
+            <div class="photo-grid">
+                {% for photo in photos %}
+                    <div class="photo-card">
+                        <img src="/thumbnail/{{ photo.id }}" 
+                             alt="{{ photo.filename }}"
+                             onclick="window.open('/image/{{ photo.id }}', '_blank')"
+                             style="cursor: pointer;">
+                        <div class="photo-info">
+                            <strong><a href="/product/{{ photo.product.fcc_id }}" style="color: #667eea; text-decoration: none;">{{ photo.product.fcc_id }}</a></strong><br>
+                            <small style="color: #666;">{{ photo.product.applicant or 'Unknown Applicant' }}</small>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+    
+    {% if not products and not photos %}
+        <div class="card">
+            <p>No results found for "{{ query }}"</p>
+        </div>
+    {% endif %}
+{% else %}
+    <div class="card">
+        <h2>Search Tips</h2>
+        <ul>
+            <li>Search by FCC ID (e.g., "2AIZR")</li>
+            <li>Search by company name (e.g., "Apple", "Samsung")</li>
+            <li>Search by product name (e.g., "iPhone", "Router")</li>
+            <li>Partial matches are supported</li>
+        </ul>
+    </div>
+{% endif %}
+{% endblock %}

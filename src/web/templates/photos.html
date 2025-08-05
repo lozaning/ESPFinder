@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Photos - ESPFinder{% endblock %}
+
+{% block content %}
+<h1>Internal Photos ({{ total }} total)</h1>
+
+{% if photos %}
+    <div class="photo-grid">
+        {% for photo in photos %}
+            <div class="photo-card">
+                <img src="/thumbnail/{{ photo.id }}" 
+                     alt="{{ photo.filename }}"
+                     onclick="window.open('/image/{{ photo.id }}', '_blank')"
+                     style="cursor: pointer;">
+                <div class="photo-info">
+                    <strong><a href="/product/{{ photo.product.fcc_id }}" style="color: #667eea; text-decoration: none;">{{ photo.product.fcc_id }}</a></strong><br>
+                    <small style="color: #666;">{{ photo.product.applicant or 'Unknown Applicant' }}</small><br>
+                    <small style="color: #999;">
+                        {{ photo.width }}x{{ photo.height }}
+                        {% if photo.file_size %}
+                            | {{ "%.1f"|format(photo.file_size / 1024) }} KB
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination">
+        {% if page > 1 %}
+            <a href="?page={{ page - 1 }}">&laquo; Previous</a>
+        {% endif %}
+        
+        {% set total_pages = (total + per_page - 1) // per_page %}
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+                <span class="current">{{ p }}</span>
+            {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+                <a href="?page={{ p }}">{{ p }}</a>
+            {% elif p == 4 or p == total_pages - 3 %}
+                <span>...</span>
+            {% endif %}
+        {% endfor %}
+        
+        {% if page < total_pages %}
+            <a href="?page={{ page + 1 }}">Next &raquo;</a>
+        {% endif %}
+    </div>
+{% else %}
+    <div class="card">
+        <p>No photos found yet. The scraper is still processing PDFs...</p>
+    </div>
+{% endif %}
+{% endblock %}
