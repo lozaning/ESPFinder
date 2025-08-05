@@ -20,43 +20,41 @@ class FCCScraper:
         })
         
     def search_recent_filings(self, days_back: int = 7) -> List[Dict]:
-        # Try multiple FCC endpoints in case the original is down
-        search_urls = [
-            "https://fccid.io/api/search",  # Alternative FCC database
-            "https://apps.fcc.gov/oetcf/eas/reports/ViewExhibitReport.cfm",  # Original
-            f"{Config.FCC_BASE_URL}/ViewExhibitReport.cfm"  # Fallback
-        ]
+        # Use the working FCC GenericSearch endpoint
+        search_url = "https://apps.fcc.gov/oetcf/eas/reports/GenericSearch.cfm"
         
-        for search_url in search_urls:
-            try:
-                logger.info(f"Trying FCC endpoint: {search_url}")
-                
-                if "fccid.io" in search_url:
-                    # Use fccid.io API as alternative
-                    filings = self._search_fccid_io()
-                else:
-                    # Use original FCC site
-                    params = {
-                        'mode': 'Exhibits',
-                        'RequestTimeout': '500',
-                        'calledFromFrame': 'N'
-                    }
+        try:
+            logger.info(f"Searching FCC database: {search_url}")
+            
+            # Search for recent equipment authorizations
+            params = {
+                'mode': 'current',
+                'application_status': 'G',  # Granted applications
+                'product_type': '',
+                'equipment_class': '',
+                'display_type': 'summary'
+            }
+            
+            response = self.session.get(search_url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            filings = self._parse_generic_search_results(soup)
+            
+            logger.info(f"Found {len(filings)} recent filings")
+            
+            # Filter for filings that might have internal photos
+            filings_with_photos = []
+            for filing in filings[:10]:  # Limit to first 10 for testing
+                if self._check_for_internal_photos(filing['fcc_id']):
+                    filings_with_photos.append(filing)
                     
-                    response = self.session.get(search_url, params=params, timeout=30)
-                    response.raise_for_status()
-                    
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    filings = self._parse_search_results(soup)
+            logger.info(f"Found {len(filings_with_photos)} filings with potential internal photos")
+            return filings_with_photos
                 
-                logger.info(f"Found {len(filings)} recent filings from {search_url}")
-                return filings
-                
-            except Exception as e:
-                logger.warning(f"Failed to access {search_url}: {e}")
-                continue
-        
-        logger.error("All FCC endpoints failed")
-        return []
+        except Exception as e:
+            logger.error(f"Error searching FCC filings: {e}")
+            return []
     
     def _search_fccid_io(self) -> List[Dict]:
         """Alternative search using fccid.io API"""
@@ -85,6 +83,56 @@ class FCCScraper:
             logger.error(f"Error with fccid.io API: {e}")
             return []
     
+    def _parse_generic_search_results(self, soup: BeautifulSoup) -> List[Dict]:
+        """Parse results from FCC GenericSearch.cfm"""
+        filings = []
+        
+        # Look for table rows with FCC data
+        tables = soup.find_all('table')
+        for table in tables:
+            rows = table.find_all('tr')
+            for row in rows[1:]:  # Skip header row
+                cells = row.find_all('td')
+                if len(cells) >= 3:
+                    # Extract FCC ID from first cell
+                    fcc_id_cell = cells[0]
+                    fcc_id_link = fcc_id_cell.find('a')
+                    if fcc_id_link:
+                        fcc_id = fcc_id_link.get_text(strip=True)
+                        if fcc_id and len(fcc_id) > 3:  # Valid FCC ID
+                            filing = {
+                                'fcc_id': fcc_id,
+                                'applicant': cells[1].get_text(strip=True) if len(cells) > 1 else '',
+                                'product_name': cells[2].get_text(strip=True) if len(cells) > 2 else '',
+                                'filing_date': datetime.now(),  # Use current date for now
+                                'detail_url': self._build_detail_url(fcc_id)
+                            }
+                            filings.append(filing)
+                            
+        return filings
+    
+    def _check_for_internal_photos(self, fcc_id: str) -> bool:
+        """Check if an FCC ID has internal photos available"""
+        try:
+            detail_url = f"https://apps.fcc.gov/oetcf/eas/reports/ViewExhibitReport.cfm?mode=Exhibits&RequestTimeout=500&calledFromFrame=N&application_id={fcc_id}"
+            
+            response = self.session.get(detail_url, timeout=15)
+            if response.status_code == 200:
+                # Look for PDF links with internal photo keywords
+                soup = BeautifulSoup(response.content, 'html.parser')
+                for link in soup.find_all('a', href=True):
+                    filename = link.get_text(strip=True).lower()
+                    if any(keyword in filename for keyword in ['internal', 'int', 'photo', 'inside']):
+                        logger.info(f"Found internal photos for {fcc_id}: {filename}")
+                        return True
+            return False
+        except Exception as e:
+            logger.warning(f"Could not check internal photos for {fcc_id}: {e}")
+            return False
+    
+    def _build_detail_url(self, fcc_id: str) -> str:
+        return f"https://apps.fcc.gov/oetcf/eas/reports/ViewExhibitReport.cfm?mode=Exhibits&RequestTimeout=500&calledFromFrame=N&application_id={fcc_id}"
+
     def _parse_search_results(self, soup: BeautifulSoup) -> List[Dict]:
         filings = []
         
