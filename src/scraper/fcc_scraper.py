@@ -20,11 +20,27 @@ class FCCScraper:
         })
         
     def search_recent_filings(self, days_back: int = 7) -> List[Dict]:
-        logger.info("Searching for recent FCC filings...")
+        logger.info("Searching for recent FCC filings using Selenium...")
         
-        # TEMPORARY: Use sample data while FCC endpoints are down (503 errors)
-        # This allows us to test the entire system end-to-end
-        logger.warning("Using sample data - FCC endpoints returning 503 errors")
+        try:
+            # Try Selenium scraper first for real data
+            from .selenium_scraper import SeleniumFCCScraper
+            
+            selenium_scraper = SeleniumFCCScraper()
+            filings = selenium_scraper.search_recent_filings(days_back=days_back)
+            selenium_scraper.close()
+            
+            if filings:
+                logger.info(f"Found {len(filings)} real FCC filings via Selenium")
+                return filings
+            else:
+                logger.warning("Selenium scraper found no filings, falling back to sample data")
+                
+        except Exception as e:
+            logger.error(f"Selenium scraper failed: {e}, falling back to sample data")
+        
+        # Fallback to sample data if Selenium fails
+        logger.warning("Using sample data as fallback")
         
         sample_filings = [
             {
@@ -52,25 +68,6 @@ class FCCScraper:
         
         logger.info(f"Generated {len(sample_filings)} sample filings for testing")
         return sample_filings
-        
-        # TODO: Uncomment this when FCC endpoints are working again
-        # try:
-        #     # Use fccid.io or other working endpoint
-        #     search_url = "https://fccid.io/search.php"
-        #     params = {'q': 'internal photos', 'sort': 'date'}
-        #     
-        #     response = self.session.get(search_url, params=params, timeout=30)
-        #     response.raise_for_status()
-        #     
-        #     soup = BeautifulSoup(response.content, 'html.parser')
-        #     filings = self._parse_fccid_io_results(soup)
-        #     
-        #     logger.info(f"Found {len(filings)} real FCC filings")
-        #     return filings
-        #     
-        # except Exception as e:
-        #     logger.error(f"Error searching FCC filings: {e}")
-        #     return sample_filings  # Fallback to sample data
     
     def _search_fccid_io(self) -> List[Dict]:
         """Alternative search using fccid.io API"""
@@ -185,7 +182,7 @@ class FCCScraper:
     def get_filing_details(self, fcc_id: str) -> Optional[Dict]:
         logger.info(f"Getting filing details for {fcc_id}")
         
-        # TEMPORARY: Return sample PDF data for testing
+        # Handle sample data
         if fcc_id.startswith('SAMPLE'):
             sample_pdfs = [
                 {
@@ -208,29 +205,24 @@ class FCCScraper:
             logger.info(f"Generated {len(sample_pdfs)} sample PDFs for {fcc_id}")
             return details
         
-        # TODO: Real FCC detail fetching when endpoints work
-        # detail_url = f"{Config.FCC_BASE_URL}/ViewExhibitReport.cfm?mode=Exhibits&RequestTimeout=500&calledFromFrame=N&application_id={fcc_id}"
-        # 
-        # try:
-        #     response = self.session.get(detail_url, timeout=30)
-        #     response.raise_for_status()
-        #     
-        #     soup = BeautifulSoup(response.content, 'html.parser')
-        #     
-        #     details = {
-        #         'fcc_id': fcc_id,
-        #         'pdfs': self._extract_pdf_links(soup, fcc_id)
-        #     }
-        #     
-        #     time.sleep(Config.DOWNLOAD_DELAY)
-        #     return details
-        #     
-        # except Exception as e:
-        #     logger.error(f"Error getting details for {fcc_id}: {e}")
-        #     return None
-        
-        logger.warning(f"Real FCC lookup not available for {fcc_id}")
-        return None
+        # Try Selenium for real FCC data
+        try:
+            from .selenium_scraper import SeleniumFCCScraper
+            
+            selenium_scraper = SeleniumFCCScraper()
+            details = selenium_scraper.get_filing_details(fcc_id)
+            selenium_scraper.close()
+            
+            if details:
+                logger.info(f"Found {len(details.get('pdfs', []))} PDFs for {fcc_id} via Selenium")
+                return details
+            else:
+                logger.warning(f"No details found for {fcc_id} via Selenium")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Selenium detail lookup failed for {fcc_id}: {e}")
+            return None
     
     def _extract_pdf_links(self, soup: BeautifulSoup, fcc_id: str) -> List[Dict]:
         pdf_links = []
