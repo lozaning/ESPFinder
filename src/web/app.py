@@ -273,6 +273,58 @@ def trigger_scrape():
             'error': str(e)
         })
 
+@app.route('/debug/fix-urls')
+def debug_fix_urls():
+    """Fix sample PDF URLs in database"""
+    try:
+        # Fix sample PDF URLs directly using database session
+        session = db.get_session()
+        
+        try:
+            # Get all PDFs with example.com URLs (old sample URLs)
+            old_pdfs = session.query(PDF).filter(PDF.url.like('%example.com%')).all()
+            
+            response_text = f"=== PDF URL FIX ===\n"
+            response_text += f"Found {len(old_pdfs)} PDFs with old URLs to fix\n\n"
+            
+            fixed_count = 0
+            for pdf in old_pdfs:
+                old_url = pdf.url
+                
+                # Extract FCC ID from the product relationship
+                fcc_id = pdf.product.fcc_id if pdf.product else 'UNKNOWN'
+                
+                # Build new URL using the Flask route
+                if 'internal' in pdf.filename.lower():
+                    new_url = f'http://espfinder-web:5000/sample_pdfs/{fcc_id}_Internal_Photos.pdf'
+                elif 'test' in pdf.filename.lower():
+                    new_url = f'http://espfinder-web:5000/sample_pdfs/{fcc_id}_Test_Report.pdf'
+                else:
+                    # Generic fallback
+                    new_url = f'http://espfinder-web:5000/sample_pdfs/{pdf.filename}'
+                
+                response_text += f"Updating PDF {pdf.id}: {old_url} -> {new_url}\n"
+                pdf.url = new_url
+                
+                # Reset download/process flags so they get retried
+                pdf.downloaded = False
+                pdf.processed = False
+                fixed_count += 1
+            
+            session.commit()
+            response_text += f"\n✅ Successfully updated {fixed_count} PDF URLs\n"
+            
+        except Exception as e:
+            session.rollback()
+            response_text += f"\n❌ Error updating PDF URLs: {e}\n"
+        finally:
+            session.close()
+        
+        return Response(response_text, mimetype='text/plain')
+        
+    except Exception as e:
+        return Response(f"ERROR: {str(e)}", mimetype='text/plain')
+
 @app.route('/debug/scrape')
 def debug_scrape():
     """Plain text scrape trigger for remote debugging"""
