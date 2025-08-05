@@ -12,7 +12,38 @@
         <div class="stat-number">{{ total_photos }}</div>
         <div>Photos Extracted</div>
     </div>
+    <div class="stat-card">
+        <div class="stat-number" id="liveStats">--</div>
+        <div>System Status</div>
+    </div>
 </div>
+
+<script>
+function updateLiveStats() {
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            const liveStats = document.getElementById('liveStats');
+            if (data.total_products > 0) {
+                liveStats.textContent = '✅';
+                liveStats.style.color = '#28a745';
+            } else {
+                liveStats.textContent = '⏳';
+                liveStats.style.color = '#ffc107';
+            }
+        })
+        .catch(error => {
+            const liveStats = document.getElementById('liveStats');
+            liveStats.textContent = '❌';
+            liveStats.style.color = '#dc3545';
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    updateLiveStats();
+    setInterval(updateLiveStats, 30000); // Update every 30 seconds
+});
+</script>
 
 <div class="card">
     <h2>Recent Products</h2>

@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - ESPFinder{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>System Logs</h1>
+    <div style="display: flex; gap: 10px;">
+        <button onclick="manualScrape()" id="scrapeBtn" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+            Manual Scrape
+        </button>
+        <button onclick="refreshLogs()" style="background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+            Refresh
+        </button>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; gap: 20px; margin-bottom: 20px; align-items: center;">
+        <div>
+            <label for="containerSelect">Container:</label>
+            <select id="containerSelect" onchange="switchContainer()" style="padding: 5px; margin-left: 10px;">
+                <option value="espfinder">espfinder (scraper)</option>
+                <option value="espfinder-web">espfinder-web (web interface)</option>
+                <option value="espfinder-redis">espfinder-redis (redis)</option>
+            </select>
+        </div>
+        
+        <div>
+            <label for="linesSelect">Lines:</label>
+            <select id="linesSelect" onchange="refreshLogs()" style="padding: 5px; margin-left: 10px;">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+            </select>
+        </div>
+        
+        <div>
+            <label>
+                <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()"> Auto-refresh (10s)
+            </label>
+        </div>
+    </div>
+    
+    <div id="logContainer" style="background: #1a1a1a; color: #00ff00; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border-radius: 4px; height: 600px; overflow-y: auto; white-space: pre-wrap;">
+        Loading logs...
+    </div>
+</div>
+
+<div class="card">
+    <h2>Container Status</h2>
+    <div id="containerStatus">
+        Loading container information...
+    </div>
+</div>
+
+<script>
+let autoRefreshInterval = null;
+let currentContainer = 'espfinder';
+
+function refreshLogs() {
+    const container = document.getElementById('containerSelect').value;
+    const lines = document.getElementById('linesSelect').value;
+    const logContainer = document.getElementById('logContainer');
+    
+    logContainer.textContent = 'Loading logs...';
+    
+    fetch(`/api/logs?container=${container}&lines=${lines}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                logContainer.textContent = data.logs || 'No logs available';
+                logContainer.scrollTop = logContainer.scrollHeight;
+            } else {
+                logContainer.textContent = `Error: ${data.error}`;
+            }
+        })
+        .catch(error => {
+            logContainer.textContent = `Network error: ${error.message}`;
+        });
+}
+
+function switchContainer() {
+    currentContainer = document.getElementById('containerSelect').value;
+    refreshLogs();
+}
+
+function toggleAutoRefresh() {
+    const autoRefresh = document.getElementById('autoRefresh').checked;
+    
+    if (autoRefresh) {
+        autoRefreshInterval = setInterval(refreshLogs, 10000);
+    } else {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
+        }
+    }
+}
+
+function manualScrape() {
+    const btn = document.getElementById('scrapeBtn');
+    const originalText = btn.textContent;
+    
+    btn.textContent = 'Running...';
+    btn.disabled = true;
+    
+    fetch('/api/trigger-scrape')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Scrape completed successfully!\\n\\nOutput:\\n' + (data.output || 'No output'));
+            } else {
+                alert('Scrape failed:\\n' + (data.error || 'Unknown error'));
+            }
+            
+            // Refresh logs to show the scrape activity
+            setTimeout(refreshLogs, 1000);
+        })
+        .catch(error => {
+            alert('Network error: ' + error.message);
+        })
+        .finally(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        });
+}
+
+function loadContainerStatus() {
+    fetch('/api/containers')
+        .then(response => response.json())
+        .then(data => {
+            const statusDiv = document.getElementById('containerStatus');
+            
+            if (data.success) {
+                let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">';
+                
+                data.containers.forEach(container => {
+                    const isRunning = container.status.toLowerCase().includes('up');
+                    const statusColor = isRunning ? '#28a745' : '#dc3545';
+                    
+                    html += `
+                        <div style="border: 1px solid #ddd; padding: 15px; border-radius: 4px;">
+                            <strong>${container.name}</strong><br>
+                            <span style="color: ${statusColor}; font-weight: bold;">${container.status}</span><br>
+                            <small style="color: #666;">${container.image}</small>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                statusDiv.innerHTML = html;
+            } else {
+                statusDiv.innerHTML = `<p style="color: #dc3545;">Error loading container status: ${data.error}</p>`;
+            }
+        })
+        .catch(error => {
+            document.getElementById('containerStatus').innerHTML = `<p style="color: #dc3545;">Network error: ${error.message}</p>`;
+        });
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    refreshLogs();
+    loadContainerStatus();
+    
+    // Auto-refresh container status every 30 seconds
+    setInterval(loadContainerStatus, 30000);
+});
+</script>
+{% endblock %}

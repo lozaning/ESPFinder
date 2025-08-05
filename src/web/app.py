@@ -1,5 +1,7 @@
-from flask import Flask, render_template, send_file, request, jsonify
+from flask import Flask, render_template, send_file, request, jsonify, Response
 import os
+import subprocess
+import json
 from datetime import datetime
 from ..database.database import db
 from ..database.models import Product, PDF, Photo
@@ -135,6 +137,117 @@ def search():
     finally:
         session.close()
 
+@app.route('/logs')
+def logs_page():
+    return render_template('logs.html')
+
+@app.route('/api/logs')
+def api_logs():
+    lines = request.args.get('lines', 100, type=int)
+    container = request.args.get('container', 'espfinder')
+    
+    try:
+        cmd = ['docker', 'logs', '--tail', str(lines), container]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            logs = result.stdout + result.stderr
+            return jsonify({
+                'success': True,
+                'logs': logs,
+                'container': container
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Docker logs failed: {result.stderr}',
+                'container': container
+            })
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Timeout getting logs',
+            'container': container
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'container': container
+        })
+
+@app.route('/api/logs/stream')
+def stream_logs():
+    container = request.args.get('container', 'espfinder')
+    
+    def generate():
+        try:
+            cmd = ['docker', 'logs', '-f', '--tail', '50', container]
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    yield f"data: {json.dumps({'log': line.rstrip(), 'container': container})}\n\n"
+                    
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return Response(generate(), mimetype='text/plain')
+
+@app.route('/api/containers')
+def api_containers():
+    try:
+        cmd = ['docker', 'ps', '--format', 'json']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            containers = []
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    container_info = json.loads(line)
+                    containers.append({
+                        'name': container_info.get('Names', ''),
+                        'status': container_info.get('Status', ''),
+                        'image': container_info.get('Image', '')
+                    })
+            
+            return jsonify({
+                'success': True,
+                'containers': containers
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.stderr
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+@app.route('/api/trigger-scrape')
+def trigger_scrape():
+    try:
+        cmd = ['docker', 'exec', 'espfinder', 'python', '-m', 'src.main']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        return jsonify({
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr if result.returncode != 0 else None
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Scraper timeout (>60s)'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
 @app.route('/api/stats')
 def api_stats():
     session = db.get_session()
@@ -143,10 +256,15 @@ def api_stats():
         total_photos = session.query(Photo).count()
         total_pdfs = session.query(PDF).count()
         
+        processed_pdfs = session.query(PDF).filter_by(processed=True).count()
+        downloaded_pdfs = session.query(PDF).filter_by(downloaded=True).count()
+        
         return jsonify({
             'total_products': total_products,
             'total_photos': total_photos,
-            'total_pdfs': total_pdfs
+            'total_pdfs': total_pdfs,
+            'processed_pdfs': processed_pdfs,
+            'downloaded_pdfs': downloaded_pdfs
         })
     finally:
         session.close()
