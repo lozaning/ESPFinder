@@ -176,6 +176,31 @@ def api_logs():
             'container': container
         })
 
+@app.route('/debug/logs')
+def debug_logs():
+    """Plain text logs endpoint for remote debugging"""
+    lines = request.args.get('lines', 200, type=int)
+    container = request.args.get('container', 'espfinder')
+    
+    try:
+        cmd = ['docker', 'logs', '--tail', str(lines), container]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        
+        response_text = f"=== LOGS FOR CONTAINER: {container} ===\n"
+        response_text += f"=== LAST {lines} LINES ===\n"
+        response_text += f"=== COMMAND: {' '.join(cmd)} ===\n\n"
+        
+        if result.returncode == 0:
+            logs = result.stdout + result.stderr
+            response_text += logs if logs.strip() else "No logs available"
+        else:
+            response_text += f"ERROR: {result.stderr}"
+            
+        return Response(response_text, mimetype='text/plain')
+        
+    except Exception as e:
+        return Response(f"ERROR: {str(e)}", mimetype='text/plain')
+
 @app.route('/api/logs/stream')
 def stream_logs():
     container = request.args.get('container', 'espfinder')
@@ -247,6 +272,111 @@ def trigger_scrape():
             'success': False,
             'error': str(e)
         })
+
+@app.route('/debug/scrape')
+def debug_scrape():
+    """Plain text scrape trigger for remote debugging"""
+    try:
+        cmd = ['docker', 'exec', 'espfinder', 'python', '-m', 'src.main']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        
+        response_text = f"=== MANUAL SCRAPE EXECUTION ===\n"
+        response_text += f"=== COMMAND: {' '.join(cmd)} ===\n"
+        response_text += f"=== EXIT CODE: {result.returncode} ===\n\n"
+        
+        if result.stdout:
+            response_text += "=== STDOUT ===\n"
+            response_text += result.stdout + "\n\n"
+            
+        if result.stderr:
+            response_text += "=== STDERR ===\n" 
+            response_text += result.stderr + "\n\n"
+            
+        response_text += f"=== EXECUTION COMPLETED ===\n"
+        
+        return Response(response_text, mimetype='text/plain')
+        
+    except subprocess.TimeoutExpired:
+        return Response("ERROR: Scraper execution timeout (>120s)", mimetype='text/plain')
+    except Exception as e:
+        return Response(f"ERROR: {str(e)}", mimetype='text/plain')
+
+@app.route('/debug/status')
+def debug_status():
+    """Plain text system status for remote debugging"""
+    try:
+        response_text = "=== ESPFINDER SYSTEM STATUS ===\n\n"
+        
+        # Database stats
+        session = db.get_session()
+        try:
+            total_products = session.query(Product).count()
+            total_photos = session.query(Photo).count()
+            total_pdfs = session.query(PDF).count()
+            processed_pdfs = session.query(PDF).filter_by(processed=True).count()
+            downloaded_pdfs = session.query(PDF).filter_by(downloaded=True).count()
+            
+            response_text += "=== DATABASE STATS ===\n"
+            response_text += f"Products: {total_products}\n"
+            response_text += f"Photos: {total_photos}\n"
+            response_text += f"PDFs Total: {total_pdfs}\n"
+            response_text += f"PDFs Downloaded: {downloaded_pdfs}\n"
+            response_text += f"PDFs Processed: {processed_pdfs}\n\n"
+            
+            # Recent products
+            recent_products = session.query(Product).order_by(Product.created_at.desc()).limit(5).all()
+            if recent_products:
+                response_text += "=== RECENT PRODUCTS ===\n"
+                for product in recent_products:
+                    response_text += f"{product.fcc_id} - {product.applicant} - {len(product.photos)} photos\n"
+                response_text += "\n"
+                
+        finally:
+            session.close()
+        
+        # Container status
+        try:
+            cmd = ['docker', 'ps', '--format', 'table {{.Names}}\t{{.Status}}\t{{.Image}}']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                response_text += "=== CONTAINER STATUS ===\n"
+                response_text += result.stdout + "\n"
+            else:
+                response_text += f"=== CONTAINER STATUS ERROR ===\n{result.stderr}\n\n"
+        except Exception as e:
+            response_text += f"=== CONTAINER STATUS ERROR ===\n{str(e)}\n\n"
+            
+        # File system check
+        try:
+            data_dir = Config.DATA_DIR
+            response_text += "=== FILE SYSTEM ===\n"
+            response_text += f"Data directory: {data_dir}\n"
+            
+            if os.path.exists(data_dir):
+                response_text += f"Data dir exists: Yes\n"
+                
+                db_path = os.path.join(data_dir, 'database')
+                img_path = os.path.join(data_dir, 'images')
+                
+                response_text += f"Database dir exists: {os.path.exists(db_path)}\n"
+                response_text += f"Images dir exists: {os.path.exists(img_path)}\n"
+                
+                if os.path.exists(img_path):
+                    image_dirs = [d for d in os.listdir(img_path) if os.path.isdir(os.path.join(img_path, d))]
+                    response_text += f"FCC ID directories: {len(image_dirs)}\n"
+                    if image_dirs:
+                        response_text += f"Sample directories: {image_dirs[:5]}\n"
+            else:
+                response_text += f"Data dir exists: No\n"
+                
+        except Exception as e:
+            response_text += f"=== FILE SYSTEM ERROR ===\n{str(e)}\n\n"
+        
+        return Response(response_text, mimetype='text/plain')
+        
+    except Exception as e:
+        return Response(f"ERROR: {str(e)}", mimetype='text/plain')
 
 @app.route('/api/stats')
 def api_stats():
