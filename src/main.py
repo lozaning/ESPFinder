@@ -39,33 +39,61 @@ def main():
     scraper = FCCScraper()
     processor = PDFProcessor()
     
-    try:
-        logger.info("Searching for recent FCC filings...")
-        filings = scraper.search_recent_filings(days_back=7)
-        
-        for filing in filings:
-            logger.info(f"Processing filing: {filing['fcc_id']}")
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            logger.info(f"Searching for recent FCC filings (attempt {retry_count + 1}/{max_retries})...")
+            filings = scraper.search_recent_filings(days_back=7)
             
-            details = scraper.get_filing_details(filing['fcc_id'])
-            if details and details.get('pdfs'):
-                filing.update(details)
-                product = scraper.save_to_database(filing)
+            if not filings:
+                logger.warning("No filings found. FCC website may be unavailable.")
+                if retry_count < max_retries - 1:
+                    import time
+                    wait_time = (retry_count + 1) * 60  # Wait 1, 2, 3 minutes
+                    logger.info(f"Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                    retry_count += 1
+                    continue
+                else:
+                    logger.error("Max retries reached. Exiting.")
+                    break
+            
+            logger.info(f"Found {len(filings)} filings to process")
+            
+            for filing in filings:
+                logger.info(f"Processing filing: {filing['fcc_id']}")
                 
-                if product:
-                    logger.info(f"Saved product {product.fcc_id}, processing PDFs...")
+                details = scraper.get_filing_details(filing['fcc_id'])
+                if details and details.get('pdfs'):
+                    filing.update(details)
+                    product = scraper.save_to_database(filing)
                     
-        logger.info("Processing unprocessed PDFs...")
-        processed_count = processor.process_unprocessed_pdfs()
-        logger.info(f"Processed {processed_count} PDFs")
-        
-        logger.info("ESPFinder completed successfully")
-        
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-        sys.exit(0)
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        sys.exit(1)
+                    if product:
+                        logger.info(f"Saved product {product.fcc_id}, processing PDFs...")
+                        
+            logger.info("Processing unprocessed PDFs...")
+            processed_count = processor.process_unprocessed_pdfs()
+            logger.info(f"Processed {processed_count} PDFs")
+            
+            logger.info("ESPFinder completed successfully")
+            break  # Success, exit retry loop
+            
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            retry_count += 1
+            if retry_count < max_retries:
+                import time
+                wait_time = retry_count * 30  # Wait 30, 60 seconds
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error("Max retries reached. Exiting gracefully.")
+                sys.exit(1)
 
 if __name__ == "__main__":
     main()

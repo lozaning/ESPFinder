@@ -20,29 +20,69 @@ class FCCScraper:
         })
         
     def search_recent_filings(self, days_back: int = 7) -> List[Dict]:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
+        # Try multiple FCC endpoints in case the original is down
+        search_urls = [
+            "https://fccid.io/api/search",  # Alternative FCC database
+            "https://apps.fcc.gov/oetcf/eas/reports/ViewExhibitReport.cfm",  # Original
+            f"{Config.FCC_BASE_URL}/ViewExhibitReport.cfm"  # Fallback
+        ]
         
-        search_url = f"{Config.FCC_BASE_URL}/ViewExhibitReport.cfm"
+        for search_url in search_urls:
+            try:
+                logger.info(f"Trying FCC endpoint: {search_url}")
+                
+                if "fccid.io" in search_url:
+                    # Use fccid.io API as alternative
+                    filings = self._search_fccid_io()
+                else:
+                    # Use original FCC site
+                    params = {
+                        'mode': 'Exhibits',
+                        'RequestTimeout': '500',
+                        'calledFromFrame': 'N'
+                    }
+                    
+                    response = self.session.get(search_url, params=params, timeout=30)
+                    response.raise_for_status()
+                    
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    filings = self._parse_search_results(soup)
+                
+                logger.info(f"Found {len(filings)} recent filings from {search_url}")
+                return filings
+                
+            except Exception as e:
+                logger.warning(f"Failed to access {search_url}: {e}")
+                continue
         
-        params = {
-            'mode': 'Exhibits',
-            'RequestTimeout': '500',
-            'calledFromFrame': 'N'
-        }
-        
+        logger.error("All FCC endpoints failed")
+        return []
+    
+    def _search_fccid_io(self) -> List[Dict]:
+        """Alternative search using fccid.io API"""
         try:
-            response = self.session.get(search_url, params=params, timeout=30)
+            # Search for recent filings with photos
+            response = self.session.get("https://fccid.io/api/search?q=internal+photos&limit=20", timeout=30)
             response.raise_for_status()
             
-            soup = BeautifulSoup(response.content, 'html.parser')
-            filings = self._parse_search_results(soup)
+            data = response.json()
+            filings = []
             
-            logger.info(f"Found {len(filings)} recent filings")
+            for item in data.get('results', []):
+                if item.get('fcc_id'):
+                    filing = {
+                        'fcc_id': item['fcc_id'],
+                        'applicant': item.get('applicant_name', ''),
+                        'product_name': item.get('product_name', ''),
+                        'filing_date': self._parse_date(item.get('date_received', '')),
+                        'detail_url': f"https://fccid.io/{item['fcc_id']}"
+                    }
+                    filings.append(filing)
+            
             return filings
             
         except Exception as e:
-            logger.error(f"Error searching FCC filings: {e}")
+            logger.error(f"Error with fccid.io API: {e}")
             return []
     
     def _parse_search_results(self, soup: BeautifulSoup) -> List[Dict]:
