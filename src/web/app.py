@@ -325,6 +325,77 @@ def debug_fix_urls():
     except Exception as e:
         return Response(f"ERROR: {str(e)}", mimetype='text/plain')
 
+@app.route('/debug/test-fcc')
+def debug_test_fcc():
+    """Test FCC website connectivity from container"""
+    try:
+        import requests
+        from datetime import datetime
+        
+        response_text = "=== FCC CONNECTIVITY TEST ===\n\n"
+        
+        # Test basic connectivity
+        try:
+            response = requests.get("https://apps.fcc.gov", timeout=10)
+            response_text += f"FCC main site: {response.status_code} (✅ reachable)\n"
+        except Exception as e:
+            response_text += f"FCC main site: ❌ {str(e)}\n"
+        
+        # Test GenericSearch page
+        try:
+            search_url = "https://apps.fcc.gov/oetcf/eas/reports/GenericSearch.cfm"
+            response = requests.get(search_url, timeout=15)
+            response_text += f"GenericSearch page: {response.status_code} (✅ reachable)\n"
+            
+            if response.status_code == 200:
+                # Quick form analysis
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                inputs = soup.find_all('input')
+                response_text += f"Form inputs found: {len(inputs)}\n"
+                
+                # Look for date fields
+                date_fields = []
+                for inp in inputs:
+                    name = inp.get('name', '')
+                    if name and any(kw in name.lower() for kw in ['date', 'grant', 'final']):
+                        date_fields.append(name)
+                
+                response_text += f"Date fields: {date_fields}\n"
+                
+                # Look for submit buttons
+                submits = soup.find_all('input', {'type': 'submit'})
+                submit_names = [s.get('name', s.get('value', 'unnamed')) for s in submits]
+                response_text += f"Submit buttons: {submit_names}\n"
+                
+        except Exception as e:
+            response_text += f"GenericSearch page: ❌ {str(e)}\n"
+        
+        # Test Chrome/Selenium availability
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+            
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            
+            driver = webdriver.Chrome(options=chrome_options)
+            response_text += "Chrome/Selenium: ✅ available\n"
+            driver.quit()
+            
+        except Exception as e:
+            response_text += f"Chrome/Selenium: ❌ {str(e)}\n"
+        
+        response_text += f"\nTest completed at {datetime.now()}\n"
+        
+        return Response(response_text, mimetype='text/plain')
+        
+    except Exception as e:
+        return Response(f"ERROR: {str(e)}", mimetype='text/plain')
+
 @app.route('/debug/scrape')
 def debug_scrape():
     """Plain text scrape trigger for remote debugging"""
