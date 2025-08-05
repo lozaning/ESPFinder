@@ -13,9 +13,9 @@ def analyze_fcc_form():
     })
     
     try:
-        print("🌐 Fetching FCC GenericSearch form...")
+        print("🌐 Fetching FCC GenericSearch form (90s timeout for slow government site)...")
         url = "https://apps.fcc.gov/oetcf/eas/reports/GenericSearch.cfm"
-        response = session.get(url, timeout=30)
+        response = session.get(url, timeout=90)
         response.raise_for_status()
         
         print(f"✅ Form loaded (status: {response.status_code})")
@@ -142,9 +142,9 @@ def analyze_fcc_form():
                 
                 try:
                     if method == 'GET':
-                        response = session.get(action_url, params=form_data, timeout=30)
+                        response = session.get(action_url, params=form_data, timeout=120)
                     else:
-                        response = session.post(action_url, data=form_data, timeout=30)
+                        response = session.post(action_url, data=form_data, timeout=120)
                     
                     print(f"✅ Form submitted (status: {response.status_code})")
                     

@@ -334,17 +334,19 @@ def debug_test_fcc():
         
         response_text = "=== FCC CONNECTIVITY TEST ===\n\n"
         
-        # Test basic connectivity
+        # Test basic connectivity with long timeout for slow government site
         try:
-            response = requests.get("https://apps.fcc.gov", timeout=10)
+            response_text += "Testing FCC main site (60s timeout)...\n"
+            response = requests.get("https://apps.fcc.gov", timeout=60)
             response_text += f"FCC main site: {response.status_code} (✅ reachable)\n"
         except Exception as e:
             response_text += f"FCC main site: ❌ {str(e)}\n"
         
-        # Test GenericSearch page
+        # Test GenericSearch page with very long timeout
         try:
+            response_text += "Testing GenericSearch page (90s timeout)...\n"
             search_url = "https://apps.fcc.gov/oetcf/eas/reports/GenericSearch.cfm"
-            response = requests.get(search_url, timeout=15)
+            response = requests.get(search_url, timeout=90)
             response_text += f"GenericSearch page: {response.status_code} (✅ reachable)\n"
             
             if response.status_code == 200:

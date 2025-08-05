@@ -53,8 +53,8 @@ class SeleniumFCCScraper:
             url = "https://apps.fcc.gov/oetcf/eas/reports/GenericSearch.cfm"
             self.driver.get(url)
             
-            # Wait for page to load
-            WebDriverWait(self.driver, 10).until(
+            # Wait for page to load (longer timeout for slow government site)
+            WebDriverWait(self.driver, 60).until(
                 EC.presence_of_element_located((By.TAG_NAME, "form"))
             )
             
@@ -76,8 +76,8 @@ class SeleniumFCCScraper:
                 submit_button = self.driver.find_element(By.NAME, "Submit")
                 submit_button.click()
                 
-                # Wait for results to load
-                WebDriverWait(self.driver, 15).until(
+                # Wait for results to load (longer timeout for slow government site)
+                WebDriverWait(self.driver, 90).until(
                     EC.presence_of_element_located((By.TAG_NAME, "table"))
                 )
                 
@@ -174,8 +174,8 @@ class SeleniumFCCScraper:
             logger.info(f"Getting details for {fcc_id}")
             self.driver.get(detail_url)
             
-            # Wait for page to load
-            WebDriverWait(self.driver, 10).until(
+            # Wait for page to load (longer timeout for slow government site)
+            WebDriverWait(self.driver, 60).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
