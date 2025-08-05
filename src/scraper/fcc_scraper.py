@@ -20,41 +20,57 @@ class FCCScraper:
         })
         
     def search_recent_filings(self, days_back: int = 7) -> List[Dict]:
-        # Use the working FCC GenericSearch endpoint
-        search_url = "https://apps.fcc.gov/oetcf/eas/reports/GenericSearch.cfm"
+        logger.info("Searching for recent FCC filings...")
         
-        try:
-            logger.info(f"Searching FCC database: {search_url}")
-            
-            # Search for recent equipment authorizations
-            params = {
-                'mode': 'current',
-                'application_status': 'G',  # Granted applications
-                'product_type': '',
-                'equipment_class': '',
-                'display_type': 'summary'
+        # TEMPORARY: Use sample data while FCC endpoints are down (503 errors)
+        # This allows us to test the entire system end-to-end
+        logger.warning("Using sample data - FCC endpoints returning 503 errors")
+        
+        sample_filings = [
+            {
+                'fcc_id': 'SAMPLE001',
+                'applicant': 'Apple Inc.',
+                'product_name': 'iPhone Test Device',
+                'filing_date': datetime.now(),
+                'detail_url': 'https://example.com/sample001'
+            },
+            {
+                'fcc_id': 'SAMPLE002', 
+                'applicant': 'Google LLC',
+                'product_name': 'Pixel Test Device',
+                'filing_date': datetime.now(),
+                'detail_url': 'https://example.com/sample002'
+            },
+            {
+                'fcc_id': 'SAMPLE003',
+                'applicant': 'Samsung Electronics',
+                'product_name': 'Galaxy Test Device', 
+                'filing_date': datetime.now(),
+                'detail_url': 'https://example.com/sample003'
             }
-            
-            response = self.session.get(search_url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            filings = self._parse_generic_search_results(soup)
-            
-            logger.info(f"Found {len(filings)} recent filings")
-            
-            # Filter for filings that might have internal photos
-            filings_with_photos = []
-            for filing in filings[:10]:  # Limit to first 10 for testing
-                if self._check_for_internal_photos(filing['fcc_id']):
-                    filings_with_photos.append(filing)
-                    
-            logger.info(f"Found {len(filings_with_photos)} filings with potential internal photos")
-            return filings_with_photos
-                
-        except Exception as e:
-            logger.error(f"Error searching FCC filings: {e}")
-            return []
+        ]
+        
+        logger.info(f"Generated {len(sample_filings)} sample filings for testing")
+        return sample_filings
+        
+        # TODO: Uncomment this when FCC endpoints are working again
+        # try:
+        #     # Use fccid.io or other working endpoint
+        #     search_url = "https://fccid.io/search.php"
+        #     params = {'q': 'internal photos', 'sort': 'date'}
+        #     
+        #     response = self.session.get(search_url, params=params, timeout=30)
+        #     response.raise_for_status()
+        #     
+        #     soup = BeautifulSoup(response.content, 'html.parser')
+        #     filings = self._parse_fccid_io_results(soup)
+        #     
+        #     logger.info(f"Found {len(filings)} real FCC filings")
+        #     return filings
+        #     
+        # except Exception as e:
+        #     logger.error(f"Error searching FCC filings: {e}")
+        #     return sample_filings  # Fallback to sample data
     
     def _search_fccid_io(self) -> List[Dict]:
         """Alternative search using fccid.io API"""
@@ -167,25 +183,54 @@ class FCCScraper:
         return None
     
     def get_filing_details(self, fcc_id: str) -> Optional[Dict]:
-        detail_url = f"{Config.FCC_BASE_URL}/ViewExhibitReport.cfm?mode=Exhibits&RequestTimeout=500&calledFromFrame=N&application_id={fcc_id}"
+        logger.info(f"Getting filing details for {fcc_id}")
         
-        try:
-            response = self.session.get(detail_url, timeout=30)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
+        # TEMPORARY: Return sample PDF data for testing
+        if fcc_id.startswith('SAMPLE'):
+            sample_pdfs = [
+                {
+                    'filename': f'{fcc_id}_Internal_Photos.pdf',
+                    'url': f'https://example.com/{fcc_id.lower()}_internal_photos.pdf',
+                    'fcc_id': fcc_id
+                },
+                {
+                    'filename': f'{fcc_id}_Test_Report.pdf', 
+                    'url': f'https://example.com/{fcc_id.lower()}_test_report.pdf',
+                    'fcc_id': fcc_id
+                }
+            ]
             
             details = {
                 'fcc_id': fcc_id,
-                'pdfs': self._extract_pdf_links(soup, fcc_id)
+                'pdfs': sample_pdfs
             }
             
-            time.sleep(Config.DOWNLOAD_DELAY)
+            logger.info(f"Generated {len(sample_pdfs)} sample PDFs for {fcc_id}")
             return details
-            
-        except Exception as e:
-            logger.error(f"Error getting details for {fcc_id}: {e}")
-            return None
+        
+        # TODO: Real FCC detail fetching when endpoints work
+        # detail_url = f"{Config.FCC_BASE_URL}/ViewExhibitReport.cfm?mode=Exhibits&RequestTimeout=500&calledFromFrame=N&application_id={fcc_id}"
+        # 
+        # try:
+        #     response = self.session.get(detail_url, timeout=30)
+        #     response.raise_for_status()
+        #     
+        #     soup = BeautifulSoup(response.content, 'html.parser')
+        #     
+        #     details = {
+        #         'fcc_id': fcc_id,
+        #         'pdfs': self._extract_pdf_links(soup, fcc_id)
+        #     }
+        #     
+        #     time.sleep(Config.DOWNLOAD_DELAY)
+        #     return details
+        #     
+        # except Exception as e:
+        #     logger.error(f"Error getting details for {fcc_id}: {e}")
+        #     return None
+        
+        logger.warning(f"Real FCC lookup not available for {fcc_id}")
+        return None
     
     def _extract_pdf_links(self, soup: BeautifulSoup, fcc_id: str) -> List[Dict]:
         pdf_links = []
