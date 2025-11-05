@@ -27,51 +27,82 @@ install_docker_compose() {
     # Update package lists
     sudo apt update -qq
 
-    # Try to install Docker Compose v2 plugin (modern method - best for Ubuntu 24+)
+    # Try to install Docker Compose v2 plugin from official Docker repo
     echo "Attempting to install Docker Compose v2 plugin..."
     if sudo apt install -y docker-compose-plugin 2>/dev/null && sudo docker compose version >/dev/null 2>&1; then
         echo "✅ Installed Docker Compose v2 plugin"
         return 0
     fi
 
-    # Fallback: install standalone docker-compose with Python 3.12 fix
-    echo "Docker Compose plugin not available, installing standalone version..."
+    # On Ubuntu 24+, python3-distutils doesn't exist and old docker-compose is broken
+    # We need to manually install Docker Compose v2 from GitHub
+    echo "Docker Compose plugin not available from apt."
+    echo "Installing Docker Compose v2 manually..."
 
-    # On Ubuntu 24+ with Python 3.12, we MUST have python3-distutils for old docker-compose
-    echo "Installing python3-distutils for docker-compose compatibility..."
-    if sudo apt install -y python3-distutils; then
-        echo "✅ Installed python3-distutils"
-    else
-        echo "⚠️  python3-distutils installation failed (may not be needed)"
-    fi
+    # Detect architecture
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64)
+            COMPOSE_ARCH="x86_64"
+            ;;
+        aarch64|arm64)
+            COMPOSE_ARCH="aarch64"
+            ;;
+        armv7l)
+            COMPOSE_ARCH="armv7"
+            ;;
+        *)
+            echo "❌ Unsupported architecture: $ARCH"
+            return 1
+            ;;
+    esac
 
-    # Install docker-compose
-    echo "Installing docker-compose package..."
-    sudo apt install -y docker-compose || {
-        echo "❌ Failed to install docker-compose package"
+    # Download and install Docker Compose v2
+    COMPOSE_VERSION="v2.24.5"
+    COMPOSE_URL="https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}"
+
+    echo "Downloading Docker Compose ${COMPOSE_VERSION} for ${COMPOSE_ARCH}..."
+    sudo curl -SL "$COMPOSE_URL" -o /usr/local/bin/docker-compose || {
+        echo "❌ Failed to download Docker Compose"
         return 1
     }
 
+    sudo chmod +x /usr/local/bin/docker-compose
+
+    # Create symlink for 'docker compose' command
+    sudo mkdir -p /usr/local/lib/docker/cli-plugins
+    sudo ln -sf /usr/local/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+
     # Verify it works
-    if sudo docker-compose version >/dev/null 2>&1; then
-        echo "✅ docker-compose is working"
+    if docker-compose version >/dev/null 2>&1; then
+        echo "✅ Docker Compose v2 installed successfully"
+        docker-compose version
+        return 0
+    elif /usr/local/bin/docker-compose version >/dev/null 2>&1; then
+        echo "✅ Docker Compose v2 installed successfully"
+        /usr/local/bin/docker-compose version
         return 0
     else
-        echo "❌ docker-compose installed but still not working"
-        echo "This may be a Python compatibility issue."
+        echo "❌ Docker Compose installation failed"
         return 1
     fi
 }
 
 # Function to run docker compose commands
 run_docker_compose() {
-    # Try Docker Compose v2 (plugin) first
+    # Try Docker Compose v2 (plugin) - 'docker compose' subcommand
     if sudo docker compose version >/dev/null 2>&1; then
         sudo docker compose "$@"
         return $?
     fi
 
-    # Check if standalone docker-compose exists AND works
+    # Try standalone docker-compose v2 from manual install
+    if [ -x "/usr/local/bin/docker-compose" ] && /usr/local/bin/docker-compose version >/dev/null 2>&1; then
+        /usr/local/bin/docker-compose "$@"
+        return $?
+    fi
+
+    # Check if docker-compose exists in PATH and works
     if command_exists docker-compose; then
         # Test if it actually works (not broken by missing distutils)
         if docker-compose version >/dev/null 2>&1; then
@@ -81,13 +112,15 @@ run_docker_compose() {
             sudo docker-compose "$@"
             return $?
         else
-            # docker-compose exists but is broken, try to fix it
+            # docker-compose exists but is broken (Ubuntu 24 + Python 3.12 issue)
             echo "⚠️  docker-compose is installed but broken, attempting to fix..."
             install_docker_compose || exit 1
 
             # Try again after fix
             if sudo docker compose version >/dev/null 2>&1; then
                 sudo docker compose "$@"
+            elif [ -x "/usr/local/bin/docker-compose" ]; then
+                /usr/local/bin/docker-compose "$@"
             elif sudo docker-compose version >/dev/null 2>&1; then
                 sudo docker-compose "$@"
             else
@@ -105,6 +138,8 @@ run_docker_compose() {
     # Try again after installation
     if sudo docker compose version >/dev/null 2>&1; then
         sudo docker compose "$@"
+    elif [ -x "/usr/local/bin/docker-compose" ]; then
+        /usr/local/bin/docker-compose "$@"
     elif sudo docker-compose version >/dev/null 2>&1; then
         sudo docker-compose "$@"
     else
