@@ -4,6 +4,8 @@ Automatically downloads internal photos from new FCC product filings and stores 
 
 ## Quick Start
 
+### Docker Installation (Recommended)
+
 Install with one command:
 
 ```bash
@@ -15,6 +17,16 @@ This will:
 - Clone the repository to `~/ESPFinder`
 - Set up the environment
 - Build and start the containers
+
+### Proxmox LXC Container Installation
+
+For deploying in a Proxmox LXC container (Ubuntu 25+):
+
+```bash
+wget -O - https://raw.githubusercontent.com/lozaning/ESPFinder/main/install-lxc.sh | bash
+```
+
+This installs ESPFinder natively without Docker, perfect for LXC containers. See [LXC Deployment Guide](docs/LXC-DEPLOYMENT.md) for details.
 
 ## Manual Installation
 
@@ -82,9 +94,26 @@ docker-compose run espfinder python -m src.main
 - **Database**: SQLite/PostgreSQL for metadata storage
 - **File Storage**: Local filesystem for images
 
+## Web Interface
+
+Access the web interface at `http://localhost:5000` (Docker) or `http://YOUR-IP:5000` (LXC) to:
+- Browse all scraped products
+- View extracted images
+- Search by FCC ID, applicant, or product name
+- Manually trigger scraper runs
+- View system logs and statistics
+
+## Deployment Options
+
+- **Docker**: Best for development and quick testing ([install.sh](install.sh))
+- **Proxmox LXC**: Best for production deployments in containers ([install-lxc.sh](install-lxc.sh))
+- **Manual**: Full control over installation (see Manual Installation above)
+
+See [LXC Deployment Guide](docs/LXC-DEPLOYMENT.md) for detailed LXC setup instructions.
+
 ## Future Features
 
 - Computer vision for PCB component identification
-- Web interface for browsing findings
 - Advanced filtering and search
 - Export capabilities
+- Email notifications for new findings
