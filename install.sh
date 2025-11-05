@@ -24,53 +24,78 @@ run_docker() {
 install_docker_compose() {
     echo "Installing Docker Compose..."
 
-    # Try to install Docker Compose v2 plugin (modern method)
-    if sudo apt install -y docker-compose-plugin 2>/dev/null; then
+    # Update package lists
+    sudo apt update -qq
+
+    # Try to install Docker Compose v2 plugin (modern method - best for Ubuntu 24+)
+    echo "Attempting to install Docker Compose v2 plugin..."
+    if sudo apt install -y docker-compose-plugin 2>/dev/null && sudo docker compose version >/dev/null 2>&1; then
         echo "✅ Installed Docker Compose v2 plugin"
         return 0
     fi
 
-    # Fallback: install standalone docker-compose
+    # Fallback: install standalone docker-compose with Python 3.12 fix
     echo "Docker Compose plugin not available, installing standalone version..."
 
-    # On Ubuntu 24+ with Python 3.12, we need python3-distutils for old docker-compose
-    # Safe to install on any version, so just try it
+    # On Ubuntu 24+ with Python 3.12, we MUST have python3-distutils for old docker-compose
     echo "Installing python3-distutils for docker-compose compatibility..."
-    sudo apt install -y python3-distutils 2>/dev/null || echo "  (python3-distutils not available or already installed)"
+    if sudo apt install -y python3-distutils; then
+        echo "✅ Installed python3-distutils"
+    else
+        echo "⚠️  python3-distutils installation failed (may not be needed)"
+    fi
 
+    # Install docker-compose
+    echo "Installing docker-compose package..."
     sudo apt install -y docker-compose || {
-        echo "❌ Failed to install docker-compose"
+        echo "❌ Failed to install docker-compose package"
         return 1
     }
 
     # Verify it works
-    if docker-compose version >/dev/null 2>&1; then
-        echo "✅ Installed docker-compose"
+    if sudo docker-compose version >/dev/null 2>&1; then
+        echo "✅ docker-compose is working"
         return 0
     else
-        echo "⚠️  docker-compose installed but not working, will use sudo"
-        return 0
+        echo "❌ docker-compose installed but still not working"
+        echo "This may be a Python compatibility issue."
+        return 1
     fi
 }
 
 # Function to run docker compose commands
 run_docker_compose() {
-    # Try Docker Compose v2 (plugin)
+    # Try Docker Compose v2 (plugin) first
     if sudo docker compose version >/dev/null 2>&1; then
         sudo docker compose "$@"
         return $?
     fi
 
-    # Try standalone docker-compose
+    # Check if standalone docker-compose exists AND works
     if command_exists docker-compose; then
+        # Test if it actually works (not broken by missing distutils)
         if docker-compose version >/dev/null 2>&1; then
             docker-compose "$@"
-        elif command_exists sg; then
-            sg docker -c "docker-compose $*"
-        else
+            return $?
+        elif sudo docker-compose version >/dev/null 2>&1; then
             sudo docker-compose "$@"
+            return $?
+        else
+            # docker-compose exists but is broken, try to fix it
+            echo "⚠️  docker-compose is installed but broken, attempting to fix..."
+            install_docker_compose || exit 1
+
+            # Try again after fix
+            if sudo docker compose version >/dev/null 2>&1; then
+                sudo docker compose "$@"
+            elif sudo docker-compose version >/dev/null 2>&1; then
+                sudo docker-compose "$@"
+            else
+                echo "❌ Failed to get working Docker Compose"
+                exit 1
+            fi
+            return $?
         fi
-        return $?
     fi
 
     # Neither found, install it
@@ -80,8 +105,11 @@ run_docker_compose() {
     # Try again after installation
     if sudo docker compose version >/dev/null 2>&1; then
         sudo docker compose "$@"
-    else
+    elif sudo docker-compose version >/dev/null 2>&1; then
         sudo docker-compose "$@"
+    else
+        echo "❌ Failed to get working Docker Compose"
+        exit 1
     fi
 }
 
