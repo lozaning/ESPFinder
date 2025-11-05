@@ -167,15 +167,42 @@ log_info "Cloning ESPFinder repository from GitHub..."
 if [ -d "$INSTALL_DIR/.git" ]; then
     log_info "Repository already exists, pulling latest changes..."
     cd $INSTALL_DIR
-    sudo -u espfinder git pull origin main 2>&1 | tail -5 || log_warning "Git pull failed, continuing..."
-else
-    rm -rf $INSTALL_DIR/*
-    log_info "This may take a minute..."
-    sudo -u espfinder git clone https://github.com/lozaning/ESPFinder.git $INSTALL_DIR 2>&1 | grep -E "^(Cloning|remote:|Receiving)" || true
-    log_success "Repository cloned"
+    if sudo -u espfinder git pull origin claude/proxmox-lxc-install-script-011CUp7n1B1BYqgUWBmDpekz 2>&1 | tail -5; then
+        log_success "Repository updated"
+    else
+        log_warning "Git pull failed, will try fresh clone..."
+        cd /tmp
+        rm -rf $INSTALL_DIR
+        mkdir -p $INSTALL_DIR
+        chown espfinder:espfinder $INSTALL_DIR
+    fi
+fi
+
+if [ ! -d "$INSTALL_DIR/.git" ]; then
+    log_info "Cloning repository (this may take a minute)..."
+    if sudo -u espfinder git clone -b claude/proxmox-lxc-install-script-011CUp7n1B1BYqgUWBmDpekz https://github.com/lozaning/ESPFinder.git $INSTALL_DIR 2>&1 | tee /tmp/git-clone.log | grep -E "(Cloning|Receiving|Resolving)"; then
+        log_success "Repository cloned successfully"
+    else
+        log_error "Git clone failed! Check /tmp/git-clone.log for details"
+        cat /tmp/git-clone.log
+        exit 1
+    fi
 fi
 
 cd $INSTALL_DIR
+
+# Verify critical files exist
+if [ ! -f "$INSTALL_DIR/requirements.txt" ]; then
+    log_error "requirements.txt not found! Repository clone may have failed."
+    exit 1
+fi
+
+if [ ! -d "$INSTALL_DIR/src" ]; then
+    log_error "src directory not found! Repository clone may have failed."
+    exit 1
+fi
+
+log_success "Repository verified"
 
 # Step 7: Set up Python virtual environment
 log_info "Setting up Python virtual environment..."
@@ -208,11 +235,44 @@ log_success "Virtual environment created"
 # Step 8: Install Python dependencies
 log_info "Installing Python dependencies (this may take 3-5 minutes)..."
 log_info "Upgrading pip..."
-sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -2
-log_info "Installing packages: requests, beautifulsoup4, flask, selenium, pymupdf, opencv..."
-sudo -u espfinder $INSTALL_DIR/venv/bin/pip install -r $INSTALL_DIR/requirements.txt 2>&1 | grep -E "^(Collecting|Installing collected|Successfully installed)" | head -30 || echo "Installing packages..."
+if ! sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --upgrade pip 2>&1 | tail -3; then
+    log_error "Failed to upgrade pip"
+    exit 1
+fi
 
-log_success "Python dependencies installed"
+log_info "Installing packages: requests, beautifulsoup4, flask, selenium, pymupdf, opencv..."
+if sudo -u espfinder $INSTALL_DIR/venv/bin/pip install -r $INSTALL_DIR/requirements.txt 2>&1 | tee /tmp/pip-install.log | grep -E "(Collecting|Installing collected|Successfully installed|Requirement already satisfied)" | head -30; then
+    log_success "Python dependencies installed"
+else
+    log_error "Failed to install Python dependencies! Check /tmp/pip-install.log"
+    tail -20 /tmp/pip-install.log
+    exit 1
+fi
+
+# Verify critical packages
+log_info "Verifying Python packages..."
+MISSING_PACKAGES=""
+for package in flask sqlalchemy requests beautifulsoup4 selenium pymupdf pillow; do
+    if ! sudo -u espfinder $INSTALL_DIR/venv/bin/python -c "import $package" 2>/dev/null; then
+        MISSING_PACKAGES="$MISSING_PACKAGES $package"
+    fi
+done
+
+if [ -n "$MISSING_PACKAGES" ]; then
+    log_error "Missing Python packages:$MISSING_PACKAGES"
+    log_error "Retrying installation..."
+    sudo -u espfinder $INSTALL_DIR/venv/bin/pip install $MISSING_PACKAGES
+fi
+
+# Final verification
+if sudo -u espfinder bash -c "cd $INSTALL_DIR && PYTHONPATH=$INSTALL_DIR $INSTALL_DIR/venv/bin/python -c 'from src.web import app'" 2>&1; then
+    log_success "Python environment verified - all imports working"
+else
+    log_error "Python environment verification failed - imports not working"
+    log_error "Last error:"
+    sudo -u espfinder bash -c "cd $INSTALL_DIR && PYTHONPATH=$INSTALL_DIR $INSTALL_DIR/venv/bin/python -c 'from src.web import app'" 2>&1 || true
+    exit 1
+fi
 
 # Step 9: Configure Redis
 log_info "Configuring Redis..."
@@ -443,27 +503,57 @@ log_success "Management script created at /usr/local/bin/espfinder"
 
 # Wait for web service to start
 log_info "Waiting for web service to start..."
-sleep 3
+sleep 5
 
 # Check service status with detailed feedback
-log_info "Checking service status..."
-if systemctl is-active --quiet espfinder-web; then
-    log_success "Web service is running"
+log_info "Verifying service started correctly..."
+MAX_RETRIES=10
+RETRY_COUNT=0
 
-    # Try to get the IP address
-    IP_ADDR=$(hostname -I | awk '{print $1}' || echo "YOUR-IP")
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if systemctl is-active --quiet espfinder-web; then
+        log_success "Web service is running"
 
-    # Check if port 5000 is listening
-    sleep 2
-    if netstat -tuln 2>/dev/null | grep -q ":5000 " || ss -tuln 2>/dev/null | grep -q ":5000 "; then
-        log_success "Web interface is listening on port 5000"
+        # Try to get the IP address
+        IP_ADDR=$(hostname -I | awk '{print $1}' || echo "YOUR-IP")
+
+        # Wait a moment for Flask to bind to port
+        sleep 3
+
+        # Check if port 5000 is listening
+        if netstat -tuln 2>/dev/null | grep -q ":5000 " || ss -tuln 2>/dev/null | grep -q ":5000 "; then
+            log_success "Web interface is listening on port 5000"
+
+            # Try to actually connect
+            if curl -s --max-time 5 http://localhost:5000/plain/status > /dev/null 2>&1; then
+                log_success "Web interface is responding to requests"
+                break
+            else
+                log_warning "Port open but service not responding yet, waiting..."
+                sleep 2
+            fi
+        else
+            log_warning "Port 5000 not yet open, waiting..."
+            sleep 2
+        fi
     else
-        log_warning "Port 5000 not yet open, may need a moment to start"
+        log_warning "Service not active yet, waiting... (attempt $((RETRY_COUNT+1))/$MAX_RETRIES)"
+        sleep 2
     fi
-else
-    log_warning "Web service may not have started correctly"
-    log_info "Check logs with: journalctl -u espfinder-web -n 50"
-    log_info "Or try: systemctl restart espfinder-web"
+
+    RETRY_COUNT=$((RETRY_COUNT+1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    log_error "Web service failed to start properly"
+    log_error "Checking logs for errors..."
+    journalctl -u espfinder-web -n 20 --no-pager
+    log_error ""
+    log_error "Error log:"
+    tail -20 /var/log/espfinder/web-error.log 2>/dev/null || echo "No error log found"
+    log_error ""
+    log_error "Installation failed. Please report this issue with the above logs."
+    exit 1
 fi
 
 # Final summary
