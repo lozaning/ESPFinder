@@ -67,11 +67,11 @@ log_info "Found Python $PYTHON_VERSION"
 
 log_info "Installing system dependencies (this may take 2-5 minutes)..."
 log_info "Installing: Python, build tools, Redis, Chrome dependencies..."
+
+# Install base packages first
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 \
     python3-pip \
-    python3-venv \
-    python${PYTHON_VERSION}-venv \
     python3-dev \
     gcc \
     g++ \
@@ -105,6 +105,21 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     xdg-utils \
     libu2f-udev \
     libvulkan1 2>&1 | grep -E "^(Setting up|Processing|Unpacking|Preparing|Selecting)" | head -20 || true
+
+# Try to install version-specific venv package (might not exist on all Ubuntu versions)
+log_info "Attempting to install Python venv packages..."
+apt-get install -y python3-venv 2>&1 | grep -E "^(Setting up|already)" || true
+
+# Try version-specific venv package
+if apt-cache search "python${PYTHON_VERSION}-venv" | grep -q "python${PYTHON_VERSION}-venv"; then
+    log_info "Installing python${PYTHON_VERSION}-venv..."
+    apt-get install -y python${PYTHON_VERSION}-venv 2>&1 | grep -E "^(Setting up|already)" || true
+else
+    log_warning "python${PYTHON_VERSION}-venv package not found, will use alternative method"
+    # Try installing python3-full which includes ensurepip
+    log_info "Installing python3-full as fallback..."
+    apt-get install -y python3-full 2>&1 | grep -E "^(Setting up|already)" || true
+fi
 
 log_success "System dependencies installed"
 
@@ -164,7 +179,30 @@ cd $INSTALL_DIR
 
 # Step 7: Set up Python virtual environment
 log_info "Setting up Python virtual environment..."
-sudo -u espfinder python3 -m venv $INSTALL_DIR/venv
+
+# Ensure ensurepip is available
+if ! python3 -m ensurepip --version &>/dev/null; then
+    log_warning "ensurepip not available, installing python${PYTHON_VERSION}-venv..."
+    # Try version-specific package first
+    if apt-cache search python${PYTHON_VERSION}-venv | grep -q "python${PYTHON_VERSION}-venv"; then
+        apt-get install -y python${PYTHON_VERSION}-venv 2>&1 | grep -E "^(Setting up|Processing)" || true
+    else
+        log_warning "python${PYTHON_VERSION}-venv not found, trying alternative method..."
+        # Install full distutils if venv package doesn't exist
+        apt-get install -y python${PYTHON_VERSION}-full python3-full 2>&1 | grep -E "^(Setting up|Processing)" || true
+    fi
+fi
+
+# Create virtual environment
+if ! sudo -u espfinder python3 -m venv $INSTALL_DIR/venv 2>&1; then
+    log_error "Failed to create virtual environment with venv module"
+    log_info "Trying alternative method with --without-pip..."
+    sudo -u espfinder python3 -m venv --without-pip $INSTALL_DIR/venv
+    # Install pip manually
+    log_info "Installing pip manually..."
+    curl -sS https://bootstrap.pypa.io/get-pip.py | sudo -u espfinder $INSTALL_DIR/venv/bin/python
+fi
+
 log_success "Virtual environment created"
 
 # Step 8: Install Python dependencies
