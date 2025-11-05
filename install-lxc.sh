@@ -4,9 +4,15 @@
 # For Ubuntu 25.04+ LXC Containers
 #
 # Usage: wget -O - https://raw.githubusercontent.com/lozaning/ESPFinder/main/install-lxc.sh | bash
+#        OR
+#        curl -sSL https://raw.githubusercontent.com/lozaning/ESPFinder/main/install-lxc.sh | bash
 #
 
 set -e
+set -o pipefail
+
+# Ensure output is not buffered
+export PYTHONUNBUFFERED=1
 
 # Colors for output
 RED='\033[0;31m'
@@ -52,14 +58,20 @@ echo ""
 
 # Step 1: Update system
 log_info "Updating package lists..."
-apt-get update -qq
+apt-get update -qq 2>&1 | grep -E "^(Err:|E:|W:)" || true
 
-# Step 2: Install system dependencies
-log_info "Installing system dependencies..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+# Step 2: Detect Python version and install system dependencies
+log_info "Detecting Python version..."
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+log_info "Found Python $PYTHON_VERSION"
+
+log_info "Installing system dependencies (this may take 2-5 minutes)..."
+log_info "Installing: Python, build tools, Redis, Chrome dependencies..."
+
+# Install base packages first
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 \
     python3-pip \
-    python3-venv \
     python3-dev \
     gcc \
     g++ \
@@ -92,17 +104,33 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     libxrandr2 \
     xdg-utils \
     libu2f-udev \
-    libvulkan1 \
-    > /dev/null 2>&1
+    libvulkan1 2>&1 | grep -E "^(Setting up|Processing|Unpacking|Preparing|Selecting)" | head -20 || true
+
+# Try to install version-specific venv package (might not exist on all Ubuntu versions)
+log_info "Attempting to install Python venv packages..."
+apt-get install -y python3-venv 2>&1 | grep -E "^(Setting up|already)" || true
+
+# Try version-specific venv package
+if apt-cache search "python${PYTHON_VERSION}-venv" | grep -q "python${PYTHON_VERSION}-venv"; then
+    log_info "Installing python${PYTHON_VERSION}-venv..."
+    apt-get install -y python${PYTHON_VERSION}-venv 2>&1 | grep -E "^(Setting up|already)" || true
+else
+    log_warning "python${PYTHON_VERSION}-venv package not found, will use alternative method"
+    # Try installing python3-full which includes ensurepip
+    log_info "Installing python3-full as fallback..."
+    apt-get install -y python3-full 2>&1 | grep -E "^(Setting up|already)" || true
+fi
 
 log_success "System dependencies installed"
 
 # Step 3: Install Google Chrome (for Selenium)
 log_info "Installing Google Chrome..."
 if ! command -v google-chrome &> /dev/null; then
-    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/google-chrome.deb > /dev/null 2>&1 || true
-    apt-get install -f -y -qq > /dev/null 2>&1
+    log_info "Downloading Chrome package..."
+    wget -q --show-progress -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb 2>&1 | tail -3
+    log_info "Installing Chrome package..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/google-chrome.deb 2>&1 | grep -E "^(Setting up|Processing)" || true
+    apt-get install -f -y 2>&1 | grep -E "^(Setting up|Processing)" || true
     rm /tmp/google-chrome.deb
     log_success "Google Chrome installed"
 else
@@ -135,36 +163,126 @@ chmod 755 $CONFIG_DIR
 log_success "Directory structure created"
 
 # Step 6: Clone repository
-log_info "Cloning ESPFinder repository..."
+log_info "Cloning ESPFinder repository from GitHub..."
 if [ -d "$INSTALL_DIR/.git" ]; then
     log_info "Repository already exists, pulling latest changes..."
     cd $INSTALL_DIR
-    sudo -u espfinder git pull origin main > /dev/null 2>&1 || log_warning "Git pull failed, continuing..."
-else
-    rm -rf $INSTALL_DIR/*
-    sudo -u espfinder git clone https://github.com/lozaning/ESPFinder.git $INSTALL_DIR > /dev/null 2>&1
-    log_success "Repository cloned"
+    if sudo -u espfinder git pull origin claude/proxmox-lxc-install-script-011CUp7n1B1BYqgUWBmDpekz 2>&1 | tail -5; then
+        log_success "Repository updated"
+    else
+        log_warning "Git pull failed, will try fresh clone..."
+        cd /tmp
+        rm -rf $INSTALL_DIR
+        mkdir -p $INSTALL_DIR
+        chown espfinder:espfinder $INSTALL_DIR
+    fi
+fi
+
+if [ ! -d "$INSTALL_DIR/.git" ]; then
+    log_info "Cloning repository (this may take a minute)..."
+    if sudo -u espfinder git clone -b claude/proxmox-lxc-install-script-011CUp7n1B1BYqgUWBmDpekz https://github.com/lozaning/ESPFinder.git $INSTALL_DIR 2>&1 | tee /tmp/git-clone.log | grep -E "(Cloning|Receiving|Resolving)"; then
+        log_success "Repository cloned successfully"
+    else
+        log_error "Git clone failed! Check /tmp/git-clone.log for details"
+        cat /tmp/git-clone.log
+        exit 1
+    fi
 fi
 
 cd $INSTALL_DIR
 
+# Verify critical files exist
+if [ ! -f "$INSTALL_DIR/requirements.txt" ]; then
+    log_error "requirements.txt not found! Repository clone may have failed."
+    exit 1
+fi
+
+if [ ! -d "$INSTALL_DIR/src" ]; then
+    log_error "src directory not found! Repository clone may have failed."
+    exit 1
+fi
+
+log_success "Repository verified"
+
 # Step 7: Set up Python virtual environment
 log_info "Setting up Python virtual environment..."
-sudo -u espfinder python3 -m venv $INSTALL_DIR/venv
+
+# Ensure ensurepip is available
+if ! python3 -m ensurepip --version &>/dev/null; then
+    log_warning "ensurepip not available, installing python${PYTHON_VERSION}-venv..."
+    # Try version-specific package first
+    if apt-cache search python${PYTHON_VERSION}-venv | grep -q "python${PYTHON_VERSION}-venv"; then
+        apt-get install -y python${PYTHON_VERSION}-venv 2>&1 | grep -E "^(Setting up|Processing)" || true
+    else
+        log_warning "python${PYTHON_VERSION}-venv not found, trying alternative method..."
+        # Install full distutils if venv package doesn't exist
+        apt-get install -y python${PYTHON_VERSION}-full python3-full 2>&1 | grep -E "^(Setting up|Processing)" || true
+    fi
+fi
+
+# Create virtual environment
+if ! sudo -u espfinder python3 -m venv $INSTALL_DIR/venv 2>&1; then
+    log_error "Failed to create virtual environment with venv module"
+    log_info "Trying alternative method with --without-pip..."
+    sudo -u espfinder python3 -m venv --without-pip $INSTALL_DIR/venv
+    # Install pip manually
+    log_info "Installing pip manually..."
+    curl -sS https://bootstrap.pypa.io/get-pip.py | sudo -u espfinder $INSTALL_DIR/venv/bin/python
+fi
+
 log_success "Virtual environment created"
 
 # Step 8: Install Python dependencies
-log_info "Installing Python dependencies (this may take a few minutes)..."
-sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --quiet --upgrade pip > /dev/null 2>&1
-sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --quiet -r $INSTALL_DIR/requirements.txt
+log_info "Installing Python dependencies (this may take 3-5 minutes)..."
+log_info "Upgrading pip..."
+if ! sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --upgrade pip 2>&1 | tail -3; then
+    log_error "Failed to upgrade pip"
+    exit 1
+fi
 
-log_success "Python dependencies installed"
+log_info "Installing packages: requests, beautifulsoup4, flask, selenium, pymupdf, opencv..."
+if sudo -u espfinder $INSTALL_DIR/venv/bin/pip install -r $INSTALL_DIR/requirements.txt 2>&1 | tee /tmp/pip-install.log | grep -E "(Collecting|Installing collected|Successfully installed|Requirement already satisfied)" | head -30; then
+    log_success "Python dependencies installed"
+else
+    log_error "Failed to install Python dependencies! Check /tmp/pip-install.log"
+    tail -20 /tmp/pip-install.log
+    exit 1
+fi
+
+# Verify critical packages
+log_info "Verifying Python packages..."
+MISSING_PACKAGES=""
+for package in flask sqlalchemy requests beautifulsoup4 selenium pymupdf pillow; do
+    if ! sudo -u espfinder $INSTALL_DIR/venv/bin/python -c "import $package" 2>/dev/null; then
+        MISSING_PACKAGES="$MISSING_PACKAGES $package"
+    fi
+done
+
+if [ -n "$MISSING_PACKAGES" ]; then
+    log_error "Missing Python packages:$MISSING_PACKAGES"
+    log_error "Retrying installation..."
+    sudo -u espfinder $INSTALL_DIR/venv/bin/pip install $MISSING_PACKAGES
+fi
+
+# Final verification
+if sudo -u espfinder bash -c "cd $INSTALL_DIR && PYTHONPATH=$INSTALL_DIR $INSTALL_DIR/venv/bin/python -c 'from src.web import app'" 2>&1; then
+    log_success "Python environment verified - all imports working"
+else
+    log_error "Python environment verification failed - imports not working"
+    log_error "Last error:"
+    sudo -u espfinder bash -c "cd $INSTALL_DIR && PYTHONPATH=$INSTALL_DIR $INSTALL_DIR/venv/bin/python -c 'from src.web import app'" 2>&1 || true
+    exit 1
+fi
 
 # Step 9: Configure Redis
 log_info "Configuring Redis..."
-systemctl enable redis-server > /dev/null 2>&1
-systemctl start redis-server > /dev/null 2>&1
-log_success "Redis configured and started"
+systemctl enable redis-server 2>&1 | grep -v "^$" || true
+systemctl start redis-server 2>&1 | grep -v "^$" || true
+if systemctl is-active --quiet redis-server; then
+    log_success "Redis configured and started"
+else
+    log_warning "Redis may not have started (will retry later)"
+fi
 
 # Step 10: Create configuration file
 log_info "Creating configuration file..."
@@ -196,7 +314,27 @@ EOF
 
 chown espfinder:espfinder $CONFIG_DIR/espfinder.env
 chmod 640 $CONFIG_DIR/espfinder.env
+
+# Create symlink for app to find env file
+ln -sf $CONFIG_DIR/espfinder.env $INSTALL_DIR/.env
+chown -h espfinder:espfinder $INSTALL_DIR/.env
+
 log_success "Configuration file created at $CONFIG_DIR/espfinder.env"
+
+# Step 10b: Allow espfinder user to control their own services
+log_info "Configuring sudo permissions for service management..."
+cat > /etc/sudoers.d/espfinder <<EOF
+# Allow espfinder user to manage their own services
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl start espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl status espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active *
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/journalctl *
+EOF
+
+chmod 440 /etc/sudoers.d/espfinder
+log_success "Service management permissions configured"
 
 # Step 11: Initialize database
 log_info "Initializing database..."
@@ -217,6 +355,7 @@ Type=simple
 User=espfinder
 Group=espfinder
 WorkingDirectory=$INSTALL_DIR
+Environment="PYTHONPATH=$INSTALL_DIR"
 EnvironmentFile=$CONFIG_DIR/espfinder.env
 ExecStart=$INSTALL_DIR/venv/bin/python -m src.web.app
 Restart=always
@@ -250,6 +389,7 @@ Type=oneshot
 User=espfinder
 Group=espfinder
 WorkingDirectory=$INSTALL_DIR
+Environment="PYTHONPATH=$INSTALL_DIR"
 EnvironmentFile=$CONFIG_DIR/espfinder.env
 ExecStart=$INSTALL_DIR/venv/bin/python -m src.main
 StandardOutput=append:/var/log/espfinder/scraper.log
@@ -288,12 +428,14 @@ log_info "Enabling and starting services..."
 systemctl daemon-reload
 
 # Start web service
-systemctl enable espfinder-web.service > /dev/null 2>&1
-systemctl start espfinder-web.service
+log_info "Starting web interface service..."
+systemctl enable espfinder-web.service 2>&1 | grep -v "^$" || true
+systemctl start espfinder-web.service 2>&1 | grep -v "^$" || true
 
 # Enable timer (but don't start scraper immediately)
-systemctl enable espfinder-scraper.timer > /dev/null 2>&1
-systemctl start espfinder-scraper.timer > /dev/null 2>&1
+log_info "Enabling automatic scraper timer..."
+systemctl enable espfinder-scraper.timer 2>&1 | grep -v "^$" || true
+systemctl start espfinder-scraper.timer 2>&1 | grep -v "^$" || true
 
 log_success "Services enabled and started"
 
@@ -363,14 +505,60 @@ log_success "Management script created at /usr/local/bin/espfinder"
 log_info "Waiting for web service to start..."
 sleep 5
 
-# Check service status
-if systemctl is-active --quiet espfinder-web; then
-    log_success "Web service is running"
-else
-    log_warning "Web service may not have started correctly. Check logs with: journalctl -u espfinder-web"
+# Check service status with detailed feedback
+log_info "Verifying service started correctly..."
+MAX_RETRIES=10
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if systemctl is-active --quiet espfinder-web; then
+        log_success "Web service is running"
+
+        # Try to get the IP address
+        IP_ADDR=$(hostname -I | awk '{print $1}' || echo "YOUR-IP")
+
+        # Wait a moment for Flask to bind to port
+        sleep 3
+
+        # Check if port 5000 is listening
+        if netstat -tuln 2>/dev/null | grep -q ":5000 " || ss -tuln 2>/dev/null | grep -q ":5000 "; then
+            log_success "Web interface is listening on port 5000"
+
+            # Try to actually connect
+            if curl -s --max-time 5 http://localhost:5000/plain/status > /dev/null 2>&1; then
+                log_success "Web interface is responding to requests"
+                break
+            else
+                log_warning "Port open but service not responding yet, waiting..."
+                sleep 2
+            fi
+        else
+            log_warning "Port 5000 not yet open, waiting..."
+            sleep 2
+        fi
+    else
+        log_warning "Service not active yet, waiting... (attempt $((RETRY_COUNT+1))/$MAX_RETRIES)"
+        sleep 2
+    fi
+
+    RETRY_COUNT=$((RETRY_COUNT+1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    log_error "Web service failed to start properly"
+    log_error "Checking logs for errors..."
+    journalctl -u espfinder-web -n 20 --no-pager
+    log_error ""
+    log_error "Error log:"
+    tail -20 /var/log/espfinder/web-error.log 2>/dev/null || echo "No error log found"
+    log_error ""
+    log_error "Installation failed. Please report this issue with the above logs."
+    exit 1
 fi
 
 # Final summary
+IP_ADDR=$(hostname -I | awk '{print $1}' || echo "YOUR-IP")
+
 echo ""
 echo "=========================================="
 log_success "ESPFinder Installation Complete!"
@@ -383,26 +571,31 @@ echo "  - Config: $CONFIG_DIR/espfinder.env"
 echo "  - Logs: /var/log/espfinder/"
 echo ""
 echo "Services:"
-echo "  - Web Interface: http://$(hostname -I | awk '{print $1}'):5000"
+echo "  - Web Interface: ${GREEN}http://$IP_ADDR:5000${NC}"
 echo "  - Auto-scraper: Runs daily (via systemd timer)"
 echo ""
 echo "Management Commands:"
-echo "  espfinder start          - Start web interface"
-echo "  espfinder stop           - Stop web interface"
-echo "  espfinder restart        - Restart web interface"
-echo "  espfinder status         - Show service status"
-echo "  espfinder scrape         - Run scraper manually"
-echo "  espfinder logs           - View web logs"
-echo "  espfinder logs-scraper   - View scraper logs"
-echo "  espfinder update         - Update to latest version"
+echo "  ${BLUE}espfinder status${NC}         - Show service status"
+echo "  ${BLUE}espfinder scrape${NC}         - Run scraper manually"
+echo "  ${BLUE}espfinder logs${NC}           - View web logs"
+echo "  ${BLUE}espfinder logs-scraper${NC}   - View scraper logs"
+echo "  ${BLUE}espfinder restart${NC}        - Restart web interface"
+echo "  ${BLUE}espfinder update${NC}         - Update to latest version"
 echo ""
 echo "Configuration:"
 echo "  Edit: $CONFIG_DIR/espfinder.env"
 echo "  Then: systemctl restart espfinder-web"
 echo ""
 echo "First Steps:"
-echo "  1. Access web interface at http://YOUR-LXC-IP:5000"
-echo "  2. Run initial scrape: espfinder scrape"
-echo "  3. Check logs: espfinder logs"
+echo "  1. ${GREEN}Access web interface:${NC} http://$IP_ADDR:5000"
+echo "  2. ${GREEN}Run initial scrape:${NC} espfinder scrape"
+echo "  3. ${GREEN}Check logs:${NC} espfinder logs"
+echo ""
+echo "Troubleshooting:"
+echo "  If web interface not accessible:"
+echo "    - Check status: espfinder status"
+echo "    - View logs: journalctl -u espfinder-web -n 50"
+echo "    - Restart: systemctl restart espfinder-web"
 echo ""
 log_success "Happy scraping!"
+echo ""
