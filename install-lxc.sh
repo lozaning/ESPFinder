@@ -4,9 +4,15 @@
 # For Ubuntu 25.04+ LXC Containers
 #
 # Usage: wget -O - https://raw.githubusercontent.com/lozaning/ESPFinder/main/install-lxc.sh | bash
+#        OR
+#        curl -sSL https://raw.githubusercontent.com/lozaning/ESPFinder/main/install-lxc.sh | bash
 #
 
 set -e
+set -o pipefail
+
+# Ensure output is not buffered
+export PYTHONUNBUFFERED=1
 
 # Colors for output
 RED='\033[0;31m'
@@ -52,11 +58,12 @@ echo ""
 
 # Step 1: Update system
 log_info "Updating package lists..."
-apt-get update -qq
+apt-get update -qq 2>&1 | grep -E "^(Err:|E:|W:)" || true
 
 # Step 2: Install system dependencies
-log_info "Installing system dependencies..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+log_info "Installing system dependencies (this may take 2-5 minutes)..."
+log_info "Installing: Python, build tools, Redis, Chrome dependencies..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
@@ -92,17 +99,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     libxrandr2 \
     xdg-utils \
     libu2f-udev \
-    libvulkan1 \
-    > /dev/null 2>&1
+    libvulkan1 2>&1 | grep -E "^(Setting up|Processing|Unpacking|Preparing|Selecting)" | head -20 || true
 
 log_success "System dependencies installed"
 
 # Step 3: Install Google Chrome (for Selenium)
 log_info "Installing Google Chrome..."
 if ! command -v google-chrome &> /dev/null; then
-    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/google-chrome.deb > /dev/null 2>&1 || true
-    apt-get install -f -y -qq > /dev/null 2>&1
+    log_info "Downloading Chrome package..."
+    wget -q --show-progress -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb 2>&1 | tail -3
+    log_info "Installing Chrome package..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/google-chrome.deb 2>&1 | grep -E "^(Setting up|Processing)" || true
+    apt-get install -f -y 2>&1 | grep -E "^(Setting up|Processing)" || true
     rm /tmp/google-chrome.deb
     log_success "Google Chrome installed"
 else
@@ -135,14 +143,15 @@ chmod 755 $CONFIG_DIR
 log_success "Directory structure created"
 
 # Step 6: Clone repository
-log_info "Cloning ESPFinder repository..."
+log_info "Cloning ESPFinder repository from GitHub..."
 if [ -d "$INSTALL_DIR/.git" ]; then
     log_info "Repository already exists, pulling latest changes..."
     cd $INSTALL_DIR
-    sudo -u espfinder git pull origin main > /dev/null 2>&1 || log_warning "Git pull failed, continuing..."
+    sudo -u espfinder git pull origin main 2>&1 | tail -5 || log_warning "Git pull failed, continuing..."
 else
     rm -rf $INSTALL_DIR/*
-    sudo -u espfinder git clone https://github.com/lozaning/ESPFinder.git $INSTALL_DIR > /dev/null 2>&1
+    log_info "This may take a minute..."
+    sudo -u espfinder git clone https://github.com/lozaning/ESPFinder.git $INSTALL_DIR 2>&1 | grep -E "^(Cloning|remote:|Receiving)" || true
     log_success "Repository cloned"
 fi
 
@@ -154,17 +163,23 @@ sudo -u espfinder python3 -m venv $INSTALL_DIR/venv
 log_success "Virtual environment created"
 
 # Step 8: Install Python dependencies
-log_info "Installing Python dependencies (this may take a few minutes)..."
-sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --quiet --upgrade pip > /dev/null 2>&1
-sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --quiet -r $INSTALL_DIR/requirements.txt
+log_info "Installing Python dependencies (this may take 3-5 minutes)..."
+log_info "Upgrading pip..."
+sudo -u espfinder $INSTALL_DIR/venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -2
+log_info "Installing packages: requests, beautifulsoup4, flask, selenium, pymupdf, opencv..."
+sudo -u espfinder $INSTALL_DIR/venv/bin/pip install -r $INSTALL_DIR/requirements.txt 2>&1 | grep -E "^(Collecting|Installing collected|Successfully installed)" | head -30 || echo "Installing packages..."
 
 log_success "Python dependencies installed"
 
 # Step 9: Configure Redis
 log_info "Configuring Redis..."
-systemctl enable redis-server > /dev/null 2>&1
-systemctl start redis-server > /dev/null 2>&1
-log_success "Redis configured and started"
+systemctl enable redis-server 2>&1 | grep -v "^$" || true
+systemctl start redis-server 2>&1 | grep -v "^$" || true
+if systemctl is-active --quiet redis-server; then
+    log_success "Redis configured and started"
+else
+    log_warning "Redis may not have started (will retry later)"
+fi
 
 # Step 10: Create configuration file
 log_info "Creating configuration file..."
@@ -288,12 +303,14 @@ log_info "Enabling and starting services..."
 systemctl daemon-reload
 
 # Start web service
-systemctl enable espfinder-web.service > /dev/null 2>&1
-systemctl start espfinder-web.service
+log_info "Starting web interface service..."
+systemctl enable espfinder-web.service 2>&1 | grep -v "^$" || true
+systemctl start espfinder-web.service 2>&1 | grep -v "^$" || true
 
 # Enable timer (but don't start scraper immediately)
-systemctl enable espfinder-scraper.timer > /dev/null 2>&1
-systemctl start espfinder-scraper.timer > /dev/null 2>&1
+log_info "Enabling automatic scraper timer..."
+systemctl enable espfinder-scraper.timer 2>&1 | grep -v "^$" || true
+systemctl start espfinder-scraper.timer 2>&1 | grep -v "^$" || true
 
 log_success "Services enabled and started"
 
@@ -361,16 +378,32 @@ log_success "Management script created at /usr/local/bin/espfinder"
 
 # Wait for web service to start
 log_info "Waiting for web service to start..."
-sleep 5
+sleep 3
 
-# Check service status
+# Check service status with detailed feedback
+log_info "Checking service status..."
 if systemctl is-active --quiet espfinder-web; then
     log_success "Web service is running"
+
+    # Try to get the IP address
+    IP_ADDR=$(hostname -I | awk '{print $1}' || echo "YOUR-IP")
+
+    # Check if port 5000 is listening
+    sleep 2
+    if netstat -tuln 2>/dev/null | grep -q ":5000 " || ss -tuln 2>/dev/null | grep -q ":5000 "; then
+        log_success "Web interface is listening on port 5000"
+    else
+        log_warning "Port 5000 not yet open, may need a moment to start"
+    fi
 else
-    log_warning "Web service may not have started correctly. Check logs with: journalctl -u espfinder-web"
+    log_warning "Web service may not have started correctly"
+    log_info "Check logs with: journalctl -u espfinder-web -n 50"
+    log_info "Or try: systemctl restart espfinder-web"
 fi
 
 # Final summary
+IP_ADDR=$(hostname -I | awk '{print $1}' || echo "YOUR-IP")
+
 echo ""
 echo "=========================================="
 log_success "ESPFinder Installation Complete!"
@@ -383,26 +416,31 @@ echo "  - Config: $CONFIG_DIR/espfinder.env"
 echo "  - Logs: /var/log/espfinder/"
 echo ""
 echo "Services:"
-echo "  - Web Interface: http://$(hostname -I | awk '{print $1}'):5000"
+echo "  - Web Interface: ${GREEN}http://$IP_ADDR:5000${NC}"
 echo "  - Auto-scraper: Runs daily (via systemd timer)"
 echo ""
 echo "Management Commands:"
-echo "  espfinder start          - Start web interface"
-echo "  espfinder stop           - Stop web interface"
-echo "  espfinder restart        - Restart web interface"
-echo "  espfinder status         - Show service status"
-echo "  espfinder scrape         - Run scraper manually"
-echo "  espfinder logs           - View web logs"
-echo "  espfinder logs-scraper   - View scraper logs"
-echo "  espfinder update         - Update to latest version"
+echo "  ${BLUE}espfinder status${NC}         - Show service status"
+echo "  ${BLUE}espfinder scrape${NC}         - Run scraper manually"
+echo "  ${BLUE}espfinder logs${NC}           - View web logs"
+echo "  ${BLUE}espfinder logs-scraper${NC}   - View scraper logs"
+echo "  ${BLUE}espfinder restart${NC}        - Restart web interface"
+echo "  ${BLUE}espfinder update${NC}         - Update to latest version"
 echo ""
 echo "Configuration:"
 echo "  Edit: $CONFIG_DIR/espfinder.env"
 echo "  Then: systemctl restart espfinder-web"
 echo ""
 echo "First Steps:"
-echo "  1. Access web interface at http://YOUR-LXC-IP:5000"
-echo "  2. Run initial scrape: espfinder scrape"
-echo "  3. Check logs: espfinder logs"
+echo "  1. ${GREEN}Access web interface:${NC} http://$IP_ADDR:5000"
+echo "  2. ${GREEN}Run initial scrape:${NC} espfinder scrape"
+echo "  3. ${GREEN}Check logs:${NC} espfinder logs"
+echo ""
+echo "Troubleshooting:"
+echo "  If web interface not accessible:"
+echo "    - Check status: espfinder status"
+echo "    - View logs: journalctl -u espfinder-web -n 50"
+echo "    - Restart: systemctl restart espfinder-web"
 echo ""
 log_success "Happy scraping!"
+echo ""
