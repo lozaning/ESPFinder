@@ -254,7 +254,27 @@ EOF
 
 chown espfinder:espfinder $CONFIG_DIR/espfinder.env
 chmod 640 $CONFIG_DIR/espfinder.env
+
+# Create symlink for app to find env file
+ln -sf $CONFIG_DIR/espfinder.env $INSTALL_DIR/.env
+chown -h espfinder:espfinder $INSTALL_DIR/.env
+
 log_success "Configuration file created at $CONFIG_DIR/espfinder.env"
+
+# Step 10b: Allow espfinder user to control their own services
+log_info "Configuring sudo permissions for service management..."
+cat > /etc/sudoers.d/espfinder <<EOF
+# Allow espfinder user to manage their own services
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl start espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl status espfinder-scraper
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active *
+espfinder ALL=(ALL) NOPASSWD: /usr/bin/journalctl *
+EOF
+
+chmod 440 /etc/sudoers.d/espfinder
+log_success "Service management permissions configured"
 
 # Step 11: Initialize database
 log_info "Initializing database..."

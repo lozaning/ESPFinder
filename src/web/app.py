@@ -139,92 +139,140 @@ def search():
 
 @app.route('/logs')
 def logs_page():
-    return render_template('logs.html')
+    return render_template('logs.html', is_docker=Config.IS_DOCKER)
 
 @app.route('/api/logs')
 def api_logs():
     lines = request.args.get('lines', 100, type=int)
-    container = request.args.get('container', 'espfinder')
-    
+
     try:
-        cmd = ['docker', 'logs', '--tail', str(lines), container]
+        if Config.IS_DOCKER:
+            container = request.args.get('container', 'espfinder')
+            cmd = ['docker', 'logs', '--tail', str(lines), container]
+            source = container
+        else:
+            service = request.args.get('service', 'espfinder-web')
+            cmd = ['sudo', 'journalctl', '-u', service, '-n', str(lines), '--no-pager']
+            source = service
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode == 0:
             logs = result.stdout + result.stderr
             return jsonify({
                 'success': True,
                 'logs': logs,
-                'container': container
+                'source': source,
+                'deployment': 'docker' if Config.IS_DOCKER else 'native'
             })
         else:
             return jsonify({
                 'success': False,
-                'error': f'Docker logs failed: {result.stderr}',
-                'container': container
+                'error': f'Logs failed: {result.stderr}',
+                'source': source
             })
     except subprocess.TimeoutExpired:
         return jsonify({
             'success': False,
-            'error': 'Timeout getting logs',
-            'container': container
+            'error': 'Timeout getting logs'
         })
     except Exception as e:
         return jsonify({
             'success': False,
-            'error': str(e),
-            'container': container
+            'error': str(e)
         })
 
 @app.route('/debug/logs')
 def debug_logs():
     """Plain text logs endpoint for remote debugging"""
     lines = request.args.get('lines', 200, type=int)
-    container = request.args.get('container', 'espfinder')
-    
+
     try:
-        cmd = ['docker', 'logs', '--tail', str(lines), container]
+        if Config.IS_DOCKER:
+            container = request.args.get('container', 'espfinder')
+            cmd = ['docker', 'logs', '--tail', str(lines), container]
+            source = container
+        else:
+            service = request.args.get('service', 'espfinder-web')
+            cmd = ['sudo', 'journalctl', '-u', service, '-n', str(lines), '--no-pager']
+            source = service
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        
-        response_text = f"=== LOGS FOR CONTAINER: {container} ===\n"
+
+        response_text = f"=== LOGS FOR {source.upper()} ===\n"
+        response_text += f"=== DEPLOYMENT: {'Docker' if Config.IS_DOCKER else 'Native/LXC'} ===\n"
         response_text += f"=== LAST {lines} LINES ===\n"
         response_text += f"=== COMMAND: {' '.join(cmd)} ===\n\n"
-        
+
         if result.returncode == 0:
             logs = result.stdout + result.stderr
             response_text += logs if logs.strip() else "No logs available"
         else:
             response_text += f"ERROR: {result.stderr}"
-            
+
         return Response(response_text, mimetype='text/plain')
-        
+
     except Exception as e:
         return Response(f"ERROR: {str(e)}", mimetype='text/plain')
 
 @app.route('/api/logs/stream')
 def stream_logs():
-    container = request.args.get('container', 'espfinder')
-    
     def generate():
         try:
-            cmd = ['docker', 'logs', '-f', '--tail', '50', container]
+            if Config.IS_DOCKER:
+                container = request.args.get('container', 'espfinder')
+                cmd = ['docker', 'logs', '-f', '--tail', '50', container]
+                source = container
+            else:
+                service = request.args.get('service', 'espfinder-web')
+                cmd = ['sudo', 'journalctl', '-u', service, '-f', '-n', '50']
+                source = service
+
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            
+
             for line in iter(process.stdout.readline, ''):
                 if line:
-                    yield f"data: {json.dumps({'log': line.rstrip(), 'container': container})}\n\n"
-                    
+                    yield f"data: {json.dumps({'log': line.rstrip(), 'source': source})}\n\n"
+
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-    
+
     return Response(generate(), mimetype='text/plain')
 
 @app.route('/api/containers')
 def api_containers():
+    if not Config.IS_DOCKER:
+        # For LXC/native, return systemd service status instead
+        try:
+            services = ['espfinder-web', 'espfinder-scraper', 'redis-server']
+            status_list = []
+
+            for service in services:
+                result = subprocess.run(
+                    ['sudo', 'systemctl', 'is-active', service],
+                    capture_output=True, text=True
+                )
+                status_list.append({
+                    'name': service,
+                    'status': result.stdout.strip(),
+                    'type': 'systemd'
+                })
+
+            return jsonify({
+                'success': True,
+                'services': status_list,
+                'deployment': 'native'
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            })
+
     try:
         cmd = ['docker', 'ps', '--format', 'json']
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode == 0:
             containers = []
             for line in result.stdout.strip().split('\n'):
@@ -235,10 +283,11 @@ def api_containers():
                         'status': container_info.get('Status', ''),
                         'image': container_info.get('Image', '')
                     })
-            
+
             return jsonify({
                 'success': True,
-                'containers': containers
+                'containers': containers,
+                'deployment': 'docker'
             })
         else:
             return jsonify({
@@ -254,13 +303,19 @@ def api_containers():
 @app.route('/api/trigger-scrape')
 def trigger_scrape():
     try:
-        cmd = ['docker', 'exec', 'espfinder', 'python', '-m', 'src.main']
+        if Config.IS_DOCKER:
+            cmd = ['docker', 'exec', 'espfinder', 'python', '-m', 'src.main']
+        else:
+            # For LXC/native deployment, trigger via systemd
+            cmd = ['sudo', 'systemctl', 'start', 'espfinder-scraper']
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
+
         return jsonify({
             'success': result.returncode == 0,
             'output': result.stdout,
-            'error': result.stderr if result.returncode != 0 else None
+            'error': result.stderr if result.returncode != 0 else None,
+            'message': 'Scraper started via systemd' if not Config.IS_DOCKER and result.returncode == 0 else None
         })
     except subprocess.TimeoutExpired:
         return jsonify({
@@ -402,25 +457,31 @@ def debug_test_fcc():
 def debug_scrape():
     """Plain text scrape trigger for remote debugging"""
     try:
-        cmd = ['docker', 'exec', 'espfinder', 'python', '-m', 'src.main']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        
+        if Config.IS_DOCKER:
+            cmd = ['docker', 'exec', 'espfinder', 'python', '-m', 'src.main']
+        else:
+            # For LXC/native, run directly
+            cmd = ['/opt/espfinder/venv/bin/python', '-m', 'src.main']
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd='/opt/espfinder' if not Config.IS_DOCKER else None)
+
         response_text = f"=== MANUAL SCRAPE EXECUTION ===\n"
+        response_text += f"=== DEPLOYMENT: {'Docker' if Config.IS_DOCKER else 'Native/LXC'} ===\n"
         response_text += f"=== COMMAND: {' '.join(cmd)} ===\n"
         response_text += f"=== EXIT CODE: {result.returncode} ===\n\n"
-        
+
         if result.stdout:
             response_text += "=== STDOUT ===\n"
             response_text += result.stdout + "\n\n"
-            
+
         if result.stderr:
-            response_text += "=== STDERR ===\n" 
+            response_text += "=== STDERR ===\n"
             response_text += result.stderr + "\n\n"
-            
+
         response_text += f"=== EXECUTION COMPLETED ===\n"
-        
+
         return Response(response_text, mimetype='text/plain')
-        
+
     except subprocess.TimeoutExpired:
         return Response("ERROR: Scraper execution timeout (>120s)", mimetype='text/plain')
     except Exception as e:
@@ -464,18 +525,26 @@ def debug_status():
         finally:
             session.close()
         
-        # Container status
+        # Container/Service status
         try:
-            cmd = ['docker', 'ps', '--format', 'table {{.Names}}\t{{.Status}}\t{{.Image}}']
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                response_text += "=== CONTAINER STATUS ===\n"
-                response_text += result.stdout + "\n"
+            if Config.IS_DOCKER:
+                cmd = ['docker', 'ps', '--format', 'table {{.Names}}\t{{.Status}}\t{{.Image}}']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+                if result.returncode == 0:
+                    response_text += "=== CONTAINER STATUS ===\n"
+                    response_text += result.stdout + "\n"
+                else:
+                    response_text += f"=== CONTAINER STATUS ERROR ===\n{result.stderr}\n\n"
             else:
-                response_text += f"=== CONTAINER STATUS ERROR ===\n{result.stderr}\n\n"
+                response_text += "=== SERVICE STATUS ===\n"
+                for service in ['espfinder-web', 'espfinder-scraper', 'redis-server']:
+                    result = subprocess.run(['sudo', 'systemctl', 'is-active', service], capture_output=True, text=True)
+                    status = result.stdout.strip()
+                    response_text += f"{service}: {status}\n"
+                response_text += "\n"
         except Exception as e:
-            response_text += f"=== CONTAINER STATUS ERROR ===\n{str(e)}\n\n"
+            response_text += f"=== STATUS ERROR ===\n{str(e)}\n\n"
             
         # File system check
         try:
@@ -511,9 +580,8 @@ def debug_status():
 @app.route('/sample_pdfs/<filename>')
 def serve_sample_pdf(filename):
     """Serve sample PDFs for testing"""
-    sample_pdf_dir = '/app/data/sample_pdfs'
-    pdf_path = os.path.join(sample_pdf_dir, filename)
-    
+    pdf_path = os.path.join(Config.SAMPLE_PDFS_DIR, filename)
+
     if os.path.exists(pdf_path) and filename.endswith('.pdf'):
         return send_file(pdf_path, mimetype='application/pdf')
     else:
@@ -542,11 +610,10 @@ def api_stats():
 
 if __name__ == '__main__':
     Config.ensure_dirs()
-    
+
     # Create sample PDFs if they don't exist
-    sample_pdf_dir = '/app/data/sample_pdfs'
-    if not os.path.exists(sample_pdf_dir):
-        os.makedirs(sample_pdf_dir, exist_ok=True)
+    if not os.path.exists(Config.SAMPLE_PDFS_DIR):
+        os.makedirs(Config.SAMPLE_PDFS_DIR, exist_ok=True)
         try:
             # Create sample PDFs programmatically
             from create_sample_pdfs import create_all_sample_pdfs
@@ -554,6 +621,9 @@ if __name__ == '__main__':
             print("✅ Sample PDFs created")
         except Exception as e:
             print(f"⚠️  Could not create sample PDFs: {e}")
-    
+
     db.create_tables()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+
+    # Use debug mode only in development
+    debug_mode = os.getenv('FLASK_ENV') != 'production'
+    app.run(host='0.0.0.0', port=5000, debug=debug_mode)
