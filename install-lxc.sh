@@ -60,13 +60,18 @@ echo ""
 log_info "Updating package lists..."
 apt-get update -qq 2>&1 | grep -E "^(Err:|E:|W:)" || true
 
-# Step 2: Install system dependencies
+# Step 2: Detect Python version and install system dependencies
+log_info "Detecting Python version..."
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+log_info "Found Python $PYTHON_VERSION"
+
 log_info "Installing system dependencies (this may take 2-5 minutes)..."
 log_info "Installing: Python, build tools, Redis, Chrome dependencies..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
+    python${PYTHON_VERSION}-venv \
     python3-dev \
     gcc \
     g++ \
