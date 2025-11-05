@@ -124,13 +124,13 @@ class RealProductE2ETest:
 
             if details and details.get('pdfs'):
                 pdf_count = len(details['pdfs'])
-                print(f"✓ Found {pdf_count} PDF(s)")
+                print(f"[OK] Found {pdf_count} PDF(s)")
                 for i, pdf in enumerate(details['pdfs'], 1):
                     print(f"  PDF {i}: {pdf.get('filename', 'Unknown')}")
                     print(f"         URL: {pdf.get('url', 'N/A')}")
                 result['steps']['fetch_details'] = f'Found {pdf_count} PDFs'
             else:
-                print(f"✗ No PDFs found for {fcc_id}")
+                print(f"[FAIL] No PDFs found for {fcc_id}")
                 result['steps']['fetch_details'] = 'No PDFs found'
                 return result
 
@@ -146,10 +146,10 @@ class RealProductE2ETest:
 
             product = self.scraper.save_to_database(filing_data)
             if product:
-                print(f"✓ Saved product with ID: {product.id}")
+                print(f"[OK] Saved product with ID: {product.id}")
                 result['steps']['save_database'] = f'Product ID: {product.id}'
             else:
-                print(f"✗ Failed to save product to database")
+                print(f"[FAIL] Failed to save product to database")
                 result['steps']['save_database'] = 'Failed'
                 return result
 
@@ -163,14 +163,14 @@ class RealProductE2ETest:
                 for pdf in pdfs:
                     if self.processor.download_pdf(pdf):
                         downloaded_count += 1
-                        print(f"✓ Downloaded: {pdf.filename}")
+                        print(f"[OK] Downloaded: {pdf.filename}")
                     else:
-                        print(f"✗ Failed to download: {pdf.filename}")
+                        print(f"[FAIL] Failed to download: {pdf.filename}")
 
                 result['steps']['download_pdfs'] = f'{downloaded_count}/{len(pdfs)} PDFs downloaded'
 
                 if downloaded_count == 0:
-                    print(f"✗ No PDFs were downloaded successfully")
+                    print(f"[FAIL] No PDFs were downloaded successfully")
                     return result
 
             finally:
@@ -187,10 +187,10 @@ class RealProductE2ETest:
                     if pdf.file_path and os.path.exists(pdf.file_path):
                         image_count = self.processor.extract_images_from_pdf(pdf)
                         if image_count > 0:
-                            print(f"✓ Extracted {image_count} image(s) from {pdf.filename}")
+                            print(f"[OK] Extracted {image_count} image(s) from {pdf.filename}")
                             total_images += image_count
                         else:
-                            print(f"○ No images found in {pdf.filename}")
+                            print(f"[INFO] No images found in {pdf.filename}")
 
                 result['steps']['extract_images'] = f'Extracted {total_images} images'
 
@@ -198,7 +198,7 @@ class RealProductE2ETest:
                 photos = session.query(Photo).join(PDF).filter(PDF.product_id == product.id).all()
                 saved_image_count = len(photos)
 
-                print(f"\n📊 Summary for {fcc_id}:")
+                print(f"\n[SUMMARY] Summary for {fcc_id}:")
                 print(f"  - PDFs downloaded: {downloaded_count}")
                 print(f"  - Images extracted: {total_images}")
                 print(f"  - Images saved to DB: {saved_image_count}")
@@ -208,18 +208,18 @@ class RealProductE2ETest:
                     for photo in photos[:3]:  # Show first 3
                         if os.path.exists(photo.local_path):
                             file_size = os.path.getsize(photo.local_path)
-                            print(f"    ✓ {photo.local_path} ({file_size} bytes)")
+                            print(f"    [OK] {photo.local_path} ({file_size} bytes)")
                         else:
-                            print(f"    ✗ {photo.local_path} (missing)")
+                            print(f"    [FAIL] {photo.local_path} (missing)")
                     if saved_image_count > 3:
                         print(f"    ... and {saved_image_count - 3} more")
 
                 # Test passes if we successfully extracted and saved images
                 if saved_image_count > 0:
                     result['success'] = True
-                    print(f"\n✅ TEST PASSED: Successfully processed {fcc_id}")
+                    print(f"\n[PASS] TEST PASSED: Successfully processed {fcc_id}")
                 else:
-                    print(f"\n⚠️  TEST PARTIAL: Downloaded PDFs but no images extracted")
+                    print(f"\n[WARN]  TEST PARTIAL: Downloaded PDFs but no images extracted")
                     print(f"    (This may be normal if PDFs don't contain extractable images)")
                     # Still count as success if we got this far
                     result['success'] = True
@@ -257,20 +257,20 @@ class RealProductE2ETest:
         print("FINAL TEST REPORT")
         print("="*80)
         print(f"\nTotal Tests: {self.test_results['total_tests']}")
-        print(f"Passed: {self.test_results['passed']} ✅")
+        print(f"Passed: {self.test_results['passed']} [PASS]")
         print(f"Failed: {self.test_results['failed']} ❌")
 
         if self.test_results['passed'] == self.test_results['total_tests']:
-            print(f"\n🎉 ALL TESTS PASSED!")
+            print(f"\n ALL TESTS PASSED!")
             print(f"\nESPFinder successfully:")
-            print(f"  ✓ Connected to real FCC database")
-            print(f"  ✓ Retrieved real product information")
-            print(f"  ✓ Downloaded real PDFs from FCC servers")
-            print(f"  ✓ Extracted actual internal photos")
-            print(f"  ✓ Saved everything to database and filesystem")
-            print(f"\n✅ ESPFinder is working end-to-end with real data!")
+            print(f"  [OK] Connected to real FCC database")
+            print(f"  [OK] Retrieved real product information")
+            print(f"  [OK] Downloaded real PDFs from FCC servers")
+            print(f"  [OK] Extracted actual internal photos")
+            print(f"  [OK] Saved everything to database and filesystem")
+            print(f"\n[PASS] ESPFinder is working end-to-end with real data!")
         else:
-            print(f"\n⚠️  Some tests failed. Details:")
+            print(f"\n[WARN]  Some tests failed. Details:")
             for result in self.test_results['details']:
                 if not result['success']:
                     print(f"\n  Failed: {result['fcc_id']} - {result['product_name']}")

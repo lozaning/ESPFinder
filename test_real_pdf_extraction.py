@@ -88,9 +88,9 @@ def test_real_pdf_extraction():
             )
             session.add(product)
             session.flush()
-            print(f"✓ Created product record (ID: {product.id})")
+            print(f"[OK] Created product record (ID: {product.id})")
         else:
-            print(f"✓ Using existing product record (ID: {product.id})")
+            print(f"[OK] Using existing product record (ID: {product.id})")
 
         # Check if PDF already exists
         pdf = session.query(PDF).filter_by(
@@ -106,16 +106,16 @@ def test_real_pdf_extraction():
             )
             session.add(pdf)
             session.flush()
-            print(f"✓ Created PDF record (ID: {pdf.id})")
+            print(f"[OK] Created PDF record (ID: {pdf.id})")
         else:
-            print(f"✓ Using existing PDF record (ID: {pdf.id})")
+            print(f"[OK] Using existing PDF record (ID: {pdf.id})")
 
         session.commit()
         pdf_id = pdf.id
 
     except Exception as e:
         session.rollback()
-        print(f"✗ Error creating database records: {e}")
+        print(f"[FAIL] Error creating database records: {e}")
         return False
     finally:
         session.close()
@@ -131,7 +131,7 @@ def test_real_pdf_extraction():
 
         # Force re-download if needed
         if pdf.downloaded and pdf.local_path and os.path.exists(pdf.local_path):
-            print(f"○ PDF already downloaded: {pdf.local_path}")
+            print(f"[INFO] PDF already downloaded: {pdf.local_path}")
             print(f"  Size: {os.path.getsize(pdf.local_path)} bytes")
         else:
             if processor.download_pdf(pdf):
@@ -140,11 +140,11 @@ def test_real_pdf_extraction():
                 session = db.get_session()
                 pdf = session.query(PDF).filter_by(id=pdf_id).first()
 
-                print(f"✓ Downloaded PDF successfully!")
+                print(f"[OK] Downloaded PDF successfully!")
                 print(f"  Local path: {pdf.local_path}")
                 print(f"  Size: {pdf.file_size} bytes")
             else:
-                print(f"✗ Failed to download PDF")
+                print(f"[FAIL] Failed to download PDF")
                 return False
 
     finally:
@@ -157,13 +157,13 @@ def test_real_pdf_extraction():
         pdf = session.query(PDF).filter_by(id=pdf_id).first()
 
         if not pdf.local_path or not os.path.exists(pdf.local_path):
-            print(f"✗ PDF file not found: {pdf.local_path}")
+            print(f"[FAIL] PDF file not found: {pdf.local_path}")
             return False
 
         # Delete existing photos for fresh extraction
         existing_photos = session.query(Photo).filter_by(pdf_id=pdf_id).all()
         if existing_photos:
-            print(f"○ Removing {len(existing_photos)} existing photos for fresh extraction")
+            print(f"[INFO] Removing {len(existing_photos)} existing photos for fresh extraction")
             for photo in existing_photos:
                 if os.path.exists(photo.local_path):
                     os.remove(photo.local_path)
@@ -187,9 +187,9 @@ def test_real_pdf_extraction():
         photo_count = len(photos)
 
         if photo_count > 0:
-            print(f"✓ Extracted {photo_count} images from PDF")
+            print(f"[OK] Extracted {photo_count} images from PDF")
         else:
-            print(f"○ No images extracted from PDF")
+            print(f"[INFO] No images extracted from PDF")
             print("  Note: PDF may not contain extractable images,")
             print("        or images may not meet size/quality requirements")
 
@@ -203,7 +203,7 @@ def test_real_pdf_extraction():
         product = session.query(Product).filter_by(fcc_id=fcc_id).first()
         photos = session.query(Photo).filter_by(product_id=product.id).all()
 
-        print(f"\n📊 Extraction Results:")
+        print(f"\n[SUMMARY] Extraction Results:")
         print(f"  Product: {product.product_name} ({product.fcc_id})")
         print(f"  Photos in database: {len(photos)}")
 
@@ -213,7 +213,7 @@ def test_real_pdf_extraction():
             valid_photos = []
             for i, photo in enumerate(photos, 1):
                 exists = os.path.exists(photo.local_path)
-                status = "✓" if exists else "✗"
+                status = "[OK]" if exists else "[FAIL]"
 
                 if exists:
                     valid_photos.append(photo)
@@ -234,7 +234,7 @@ def test_real_pdf_extraction():
 
             return len(valid_photos) > 0
         else:
-            print("\n  ⚠️  No photos extracted")
+            print("\n  [WARN]  No photos extracted")
             return False
 
     finally:
@@ -256,16 +256,16 @@ def main():
 
         print("\n" + "="*80)
         if success:
-            print("🎉 TEST PASSED: ESPFinder Successfully Processed Real FCC Data!")
+            print(" TEST PASSED: ESPFinder Successfully Processed Real FCC Data!")
             print("="*80)
             print("\nESPFinder successfully:")
-            print("  ✓ Downloaded real internal photos PDF from FCC filing")
-            print("  ✓ Extracted actual product images from the PDF")
-            print("  ✓ Saved images to local storage")
-            print("  ✓ Stored metadata in database")
-            print("\n✅ ESPFinder is working correctly with real-world FCC data!")
+            print("  [OK] Downloaded real internal photos PDF from FCC filing")
+            print("  [OK] Extracted actual product images from the PDF")
+            print("  [OK] Saved images to local storage")
+            print("  [OK] Stored metadata in database")
+            print("\n[PASS] ESPFinder is working correctly with real-world FCC data!")
         else:
-            print("⚠️  TEST INCOMPLETE: Could not extract images from PDF")
+            print("[WARN]  TEST INCOMPLETE: Could not extract images from PDF")
             print("="*80)
             print("\nPossible reasons:")
             print("  - PDF format may not contain extractable raster images")

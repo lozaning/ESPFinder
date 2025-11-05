@@ -30,7 +30,7 @@ db.create_tables()
 pdf_path = "data/images/2AAE9CAUVST05/Internal_Photos.pdf"
 
 if not os.path.exists(pdf_path):
-    print(f"✗ PDF not found at: {pdf_path}")
+    print(f"[FAIL] PDF not found at: {pdf_path}")
     sys.exit(1)
 
 print(f"[1/4] Found PDF: {pdf_path}")
@@ -74,8 +74,8 @@ try:
 
     session.commit()
 
-    print(f"✓ Product ID: {product.id}")
-    print(f"✓ PDF ID: {pdf.id}")
+    print(f"[OK] Product ID: {product.id}")
+    print(f"[OK] PDF ID: {pdf.id}")
 
     pdf_id = pdf.id
     product_id = product.id
@@ -112,7 +112,7 @@ try:
     # Extract images
     photos = processor.extract_images_from_pdf(pdf)
 
-    print(f"\n✓ Extracted {len(photos)} images")
+    print(f"\n[OK] Extracted {len(photos)} images")
 
 finally:
     session.close()
@@ -136,30 +136,30 @@ try:
                 valid_count += 1
                 size_kb = photo.file_size / 1024 if photo.file_size else 0
                 print(f"\n  {i}. {photo.filename}")
-                print(f"     ✓ Size: {photo.width}x{photo.height} pixels, {size_kb:.1f} KB")
-                print(f"     ✓ Location: {photo.local_path}")
-                print(f"     ✓ Source: Page {photo.page_number}")
+                print(f"     [OK] Size: {photo.width}x{photo.height} pixels, {size_kb:.1f} KB")
+                print(f"     [OK] Location: {photo.local_path}")
+                print(f"     [OK] Source: Page {photo.page_number}")
             else:
                 print(f"\n  {i}. {photo.filename}")
-                print(f"     ✗ FILE MISSING: {photo.local_path}")
+                print(f"     [FAIL] FILE MISSING: {photo.local_path}")
 
         print(f"\n{'='*80}")
         if valid_count > 0:
-            print(f"✅ TEST PASSED: Successfully extracted {valid_count} images from real FCC PDF!")
+            print(f"[PASS] TEST PASSED: Successfully extracted {valid_count} images from real FCC PDF!")
             print("="*80)
             print("\nESPFinder successfully:")
-            print(f"  ✓ Downloaded real internal photos PDF (123 KB, 3 pages)")
-            print(f"  ✓ Extracted {valid_count} actual product photos")
-            print(f"  ✓ Saved images to filesystem")
-            print(f"  ✓ Stored metadata in database")
-            print("\n🎉 ESPFinder works end-to-end with real FCC data!")
+            print(f"  - Downloaded real internal photos PDF (123 KB, 3 pages)")
+            print(f"  - Extracted {valid_count} actual product photos")
+            print(f"  - Saved images to filesystem")
+            print(f"  - Stored metadata in database")
+            print("\nESPFinder works end-to-end with real FCC data!")
 
             sys.exit(0)
         else:
-            print(f"⚠️  TEST FAILED: No valid images found")
+            print(f"[WARN] TEST FAILED: No valid images found")
             sys.exit(1)
     else:
-        print("\n⚠️  No photos extracted")
+        print("\n[WARN] No photos extracted")
         sys.exit(1)
 
 finally:

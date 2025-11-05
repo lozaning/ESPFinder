@@ -88,7 +88,7 @@ class DirectFCCTest:
             response = self.session.get(exhibit_url, timeout=30)
             response.raise_for_status()
 
-            print(f"✓ Successfully retrieved FCC page ({len(response.content)} bytes)")
+            print(f"[OK] Successfully retrieved FCC page ({len(response.content)} bytes)")
 
             soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -110,18 +110,18 @@ class DirectFCCTest:
                         print(f"  Found internal photos PDF: {link.get_text(strip=True)}")
 
             if pdf_links:
-                print(f"\n✓ Found {len(pdf_links)} internal photos PDF(s)")
+                print(f"\n[OK] Found {len(pdf_links)} internal photos PDF(s)")
                 return {
                     'fcc_id': fcc_id,
                     'pdfs': pdf_links
                 }
             else:
-                print(f"\n○ No internal photos PDFs found for {fcc_id}")
+                print(f"\n[INFO] No internal photos PDFs found for {fcc_id}")
                 print("  (This FCC ID may not have internal photos available)")
                 return None
 
         except requests.RequestException as e:
-            print(f"\n✗ Error fetching FCC page: {e}")
+            print(f"\n[FAIL] Error fetching FCC page: {e}")
             return None
 
     def _build_full_url(self, href: str) -> str:
@@ -140,7 +140,7 @@ class DirectFCCTest:
         details = self.get_real_fcc_filing(fcc_id)
 
         if not details or not details.get('pdfs'):
-            print(f"\n⚠️  Cannot test {fcc_id} - no internal photos PDFs found")
+            print(f"\n[WARN]  Cannot test {fcc_id} - no internal photos PDFs found")
             return False
 
         # Step 2: Save to database
@@ -167,11 +167,11 @@ class DirectFCCTest:
 
             session.commit()
             product_id = product.id
-            print(f"✓ Saved product with ID: {product_id}")
+            print(f"[OK] Saved product with ID: {product_id}")
 
         except Exception as e:
             session.rollback()
-            print(f"✗ Error saving to database: {e}")
+            print(f"[FAIL] Error saving to database: {e}")
             return False
         finally:
             session.close()
@@ -189,16 +189,16 @@ class DirectFCCTest:
                 print(f"  URL: {pdf.url}")
 
                 if self.processor.download_pdf(pdf):
-                    print(f"  ✓ Downloaded successfully ({pdf.file_size} bytes)")
+                    print(f"  [OK] Downloaded successfully ({pdf.file_size} bytes)")
                     downloaded_count += 1
                 else:
-                    print(f"  ✗ Download failed")
+                    print(f"  [FAIL] Download failed")
 
             if downloaded_count == 0:
-                print(f"\n✗ No PDFs were downloaded successfully")
+                print(f"\n[FAIL] No PDFs were downloaded successfully")
                 return False
 
-            print(f"\n✓ Downloaded {downloaded_count}/{len(pdfs)} PDF(s)")
+            print(f"\n[OK] Downloaded {downloaded_count}/{len(pdfs)} PDF(s)")
 
         finally:
             session.close()
@@ -217,12 +217,12 @@ class DirectFCCTest:
                 image_count = len(photos)
 
                 if image_count > 0:
-                    print(f"  ✓ Extracted {image_count} image(s)")
+                    print(f"  [OK] Extracted {image_count} image(s)")
                     total_images += image_count
                 else:
-                    print(f"  ○ No images extracted")
+                    print(f"  [INFO] No images extracted")
 
-            print(f"\n✓ Total images extracted: {total_images}")
+            print(f"\n[OK] Total images extracted: {total_images}")
 
         finally:
             session.close()
@@ -235,7 +235,7 @@ class DirectFCCTest:
             product = session.query(Product).filter_by(fcc_id=fcc_id).first()
             photos = session.query(Photo).filter_by(product_id=product.id).all()
 
-            print(f"\n📊 Final Summary:")
+            print(f"\n[SUMMARY] Final Summary:")
             print(f"  Product: {product.product_name} ({product.fcc_id})")
             print(f"  PDFs downloaded: {downloaded_count}")
             print(f"  Photos extracted: {len(photos)}")
@@ -244,7 +244,7 @@ class DirectFCCTest:
                 print(f"\n  Extracted photos:")
                 for i, photo in enumerate(photos[:5], 1):  # Show first 5
                     exists = os.path.exists(photo.local_path)
-                    status = "✓" if exists else "✗"
+                    status = "[OK]" if exists else "[FAIL]"
                     size = f"{photo.file_size} bytes" if photo.file_size else "unknown size"
                     print(f"    {status} {photo.filename} - {photo.width}x{photo.height} pixels, {size}")
                     print(f"       Location: {photo.local_path}")
@@ -255,13 +255,13 @@ class DirectFCCTest:
                 # Verify at least one image file exists
                 existing_photos = [p for p in photos if os.path.exists(p.local_path)]
                 if existing_photos:
-                    print(f"\n✅ TEST PASSED: Successfully downloaded and extracted {len(existing_photos)} real photos from FCC!")
+                    print(f"\n[PASS] TEST PASSED: Successfully downloaded and extracted {len(existing_photos)} real photos from FCC!")
                     return True
                 else:
-                    print(f"\n⚠️  Photos extracted but files not found on disk")
+                    print(f"\n[WARN]  Photos extracted but files not found on disk")
                     return False
             else:
-                print(f"\n⚠️  No photos were extracted (PDF may not contain extractable images)")
+                print(f"\n[WARN]  No photos were extracted (PDF may not contain extractable images)")
                 return False
 
         finally:
@@ -290,16 +290,16 @@ class DirectFCCTest:
 
         print(f"\n{'='*80}")
         if success:
-            print("🎉 END-TO-END TEST SUCCESSFUL!")
+            print(" END-TO-END TEST SUCCESSFUL!")
             print("\nESPFinder successfully:")
-            print("  ✓ Connected to real FCC website")
-            print("  ✓ Retrieved real filing information")
-            print("  ✓ Downloaded real PDFs from FCC servers")
-            print("  ✓ Extracted actual internal photos")
-            print("  ✓ Saved everything to database and filesystem")
-            print("\n✅ ESPFinder is working end-to-end with real FCC data!")
+            print("  [OK] Connected to real FCC website")
+            print("  [OK] Retrieved real filing information")
+            print("  [OK] Downloaded real PDFs from FCC servers")
+            print("  [OK] Extracted actual internal photos")
+            print("  [OK] Saved everything to database and filesystem")
+            print("\n[PASS] ESPFinder is working end-to-end with real FCC data!")
         else:
-            print("⚠️  Test completed but couldn't find FCC IDs with downloadable photos")
+            print("[WARN]  Test completed but couldn't find FCC IDs with downloadable photos")
             print("   (This may be due to FCC website restrictions or data availability)")
 
         print(f"\nTest completed at: {datetime.now().isoformat()}")
