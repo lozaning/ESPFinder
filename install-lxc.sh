@@ -295,6 +295,7 @@ Type=simple
 User=espfinder
 Group=espfinder
 WorkingDirectory=$INSTALL_DIR
+Environment="PYTHONPATH=$INSTALL_DIR"
 EnvironmentFile=$CONFIG_DIR/espfinder.env
 ExecStart=$INSTALL_DIR/venv/bin/python -m src.web.app
 Restart=always
@@ -328,6 +329,7 @@ Type=oneshot
 User=espfinder
 Group=espfinder
 WorkingDirectory=$INSTALL_DIR
+Environment="PYTHONPATH=$INSTALL_DIR"
 EnvironmentFile=$CONFIG_DIR/espfinder.env
 ExecStart=$INSTALL_DIR/venv/bin/python -m src.main
 StandardOutput=append:/var/log/espfinder/scraper.log
