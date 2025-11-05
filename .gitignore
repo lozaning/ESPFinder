@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files
+config/.env
+
+# Data directories (generated at runtime)
+data/database/
+data/images/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
