@@ -20,24 +20,67 @@ run_docker() {
     fi
 }
 
+# Function to install docker compose
+install_docker_compose() {
+    echo "Installing Docker Compose..."
+
+    # Try to install Docker Compose v2 plugin (modern method)
+    if sudo apt install -y docker-compose-plugin 2>/dev/null; then
+        echo "✅ Installed Docker Compose v2 plugin"
+        return 0
+    fi
+
+    # Fallback: install standalone docker-compose
+    echo "Docker Compose plugin not available, installing standalone version..."
+
+    # On Ubuntu 24+ with Python 3.12, we need python3-distutils for old docker-compose
+    # Safe to install on any version, so just try it
+    echo "Installing python3-distutils for docker-compose compatibility..."
+    sudo apt install -y python3-distutils 2>/dev/null || echo "  (python3-distutils not available or already installed)"
+
+    sudo apt install -y docker-compose || {
+        echo "❌ Failed to install docker-compose"
+        return 1
+    }
+
+    # Verify it works
+    if docker-compose version >/dev/null 2>&1; then
+        echo "✅ Installed docker-compose"
+        return 0
+    else
+        echo "⚠️  docker-compose installed but not working, will use sudo"
+        return 0
+    fi
+}
+
 # Function to run docker compose commands
 run_docker_compose() {
-    if docker compose version >/dev/null 2>&1; then
-        run_docker compose "$@"
-    elif command_exists docker-compose; then
-        if docker-compose ps >/dev/null 2>&1; then
+    # Try Docker Compose v2 (plugin)
+    if sudo docker compose version >/dev/null 2>&1; then
+        sudo docker compose "$@"
+        return $?
+    fi
+
+    # Try standalone docker-compose
+    if command_exists docker-compose; then
+        if docker-compose version >/dev/null 2>&1; then
             docker-compose "$@"
-        elif command_exists newgrp; then
+        elif command_exists sg; then
             sg docker -c "docker-compose $*"
         else
             sudo docker-compose "$@"
         fi
+        return $?
+    fi
+
+    # Neither found, install it
+    echo "❌ Docker Compose not found."
+    install_docker_compose || exit 1
+
+    # Try again after installation
+    if sudo docker compose version >/dev/null 2>&1; then
+        sudo docker compose "$@"
     else
-        echo "❌ Docker Compose not found. Installing..."
-        sudo apt install -y docker-compose || {
-            echo "❌ Failed to install docker-compose"
-            exit 1
-        }
         sudo docker-compose "$@"
     fi
 }
